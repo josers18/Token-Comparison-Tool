@@ -73,6 +73,10 @@ class RunRequest(BaseModel):
 class FreeformRunRequest(BaseModel):
     prompt: str
     title: Optional[str] = None
+    # Optional client-provided scenario id — lets the frontend show the
+    # stepper dot as soon as the user clicks Run, before the POST returns.
+    # Sanitized server-side so we don't accept arbitrary IDs.
+    scenario_id: Optional[str] = None
     runs_per_path: int = 1
     model: str = "claude-opus-4-7"
     operator: str = "local user"
@@ -201,9 +205,18 @@ def create_app(config: AppConfig) -> FastAPI:
         prompt = (req.prompt or "").strip()
         if not prompt:
             return JSONResponse({"error": "prompt is required"}, status_code=400)
+        # Sanitize a client-provided id; otherwise generate from timestamp.
+        # Pattern: must start with "freeform_" and contain only safe chars,
+        # so we can use it in URL paths and filenames without escaping.
         ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        sid = (req.scenario_id or "").strip()
+        import re as _re
+        if sid and _re.fullmatch(r"freeform_[A-Za-z0-9_\-]{1,64}", sid):
+            scenario_id = sid
+        else:
+            scenario_id = f"freeform_{ts}"
         scenario = Scenario(
-            id=f"freeform_{ts}",
+            id=scenario_id,
             title=(req.title or "Free-format scenario").strip(),
             category="freeform",
             difficulty="medium",

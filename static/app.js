@@ -179,11 +179,25 @@ function showRemediation() {
 function buildStepper() {
   const nav = $("stepper");
   nav.replaceChildren();
+  // Freeform scenarios are tagged separately so the user can spot them at a
+  // glance. If there are multiple, they get numbered (Free-form 1, 2, ...).
+  let freeformIndex = 0;
+  const freeformCount = state.scenarios.filter(
+    (s) => s.category === "freeform" || s.id.startsWith("freeform_"),
+  ).length;
   for (const s of state.scenarios) {
+    const isFreeform = s.category === "freeform" || s.id.startsWith("freeform_");
+    let label = s.id.split("_")[0];
+    let cls = "step";
+    if (isFreeform) {
+      freeformIndex += 1;
+      label = freeformCount > 1 ? `Free-form ${freeformIndex}` : "Free-form";
+      cls += " freeform";
+    }
     nav.appendChild(el("div", {
-      className: "step",
-      text: s.id.split("_")[0],
-      attrs: { "data-sid": s.id },
+      className: cls,
+      text: label,
+      attrs: { "data-sid": s.id, title: s.title || s.id },
       onClick: () => showScenario(s.id),
     }));
   }
@@ -286,9 +300,10 @@ async function consumeSseStream(res, totalRuns) {
 }
 
 // Kick off a free-format run. Same shape as startRun but only one scenario,
-// synthesized from the user's prompt + optional title. After the run lands,
-// the freeform scenario is added to state.scenarios and the user is taken
-// directly to its scenario detail page (skipping the catalog summary).
+// synthesized from the user's prompt + optional title. The scenario is
+// registered in state.scenarios *before* the POST, so the stepper shows
+// a dot for it immediately and the user can click into the in-progress
+// scenario detail to watch turns roll in.
 async function startFreeformRun() {
   const promptEl = $("freeform-prompt");
   const titleEl = $("freeform-title");
@@ -296,15 +311,31 @@ async function startFreeformRun() {
   if (!prompt) return;
   const title = (titleEl?.value || "").trim() || "Free-format scenario";
 
-  state.runsPerPath = parseInt($("runs-per-path").value, 10);
-  state.model = $("model").value;
-  state.maxTurns = parseInt($("max-turns").value, 10);
+  // Freeform has its own controls so they're independent of the catalog's
+  // dropdowns above.
+  state.runsPerPath = parseInt($("freeform-runs").value, 10);
+  state.model = $("freeform-model").value;
+  state.maxTurns = parseInt($("freeform-max-turns").value, 10);
+
+  // Generate a deterministic id the backend will accept verbatim.
+  const ts = new Date().toISOString().replace(/[-:]/g, "").replace(/\..+/, "");
+  const sid = `freeform_${ts}`;
+
+  // Register in state.scenarios so the stepper has a dot for it. Mark
+  // active immediately. Initialize an empty bucket so handleEvent's
+  // run_complete handler doesn't have to lazy-init.
+  if (!state.scenarios.some((s) => s.id === sid)) {
+    state.scenarios.push({
+      id: sid, title, category: "freeform", difficulty: "medium", prompt,
+    });
+  }
+  state.scenarioResults[sid] = { native: [], mcp: [] };
+  buildStepper();
+  setStepStatus(sid, "active");
 
   runStartTime = Date.now();
   state._pollEventCount = 0;
   state._pollDoneRuns = 0;
-  // Mark this run as freeform so handleEvent knows to land on the scenario
-  // detail page (not summary) when it finishes.
   state._freeformActive = true;
   if (pollIntervalId) clearInterval(pollIntervalId);
   pollIntervalId = setInterval(pollForCompletion, 5000);
@@ -315,6 +346,7 @@ async function startFreeformRun() {
   const body = {
     prompt,
     title,
+    scenario_id: sid,
     runs_per_path: state.runsPerPath,
     model: state.model,
     max_turns: state.maxTurns,
@@ -331,6 +363,7 @@ async function startFreeformRun() {
     let detail = "";
     try { detail = (await res.json())?.error || ""; } catch (_) {}
     $("progress-text").textContent = "error starting run" + (detail ? ` — ${detail}` : "");
+    setStepStatus(sid, "error");
     return;
   }
 

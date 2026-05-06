@@ -70,8 +70,32 @@
           <span>Prompt</span>
           <textarea id="freeform-prompt" rows="6" placeholder="Describe the task in plain English. Claude will figure out the schema and which tools to use on each path."></textarea>
         </label>
+        <div class="freeform-controls">
+          <label>Runs / path
+            <select id="freeform-runs">
+              <option selected>1</option>
+              <option>3</option>
+              <option>5</option>
+            </select>
+          </label>
+          <label>Model
+            <select id="freeform-model">
+              <option>opus</option>
+              <option selected>sonnet</option>
+              <option>haiku</option>
+            </select>
+          </label>
+          <label>Max turns
+            <select id="freeform-max-turns">
+              <option>15</option>
+              <option selected>30</option>
+              <option>50</option>
+              <option>100</option>
+            </select>
+          </label>
+        </div>
         <div class="freeform-actions">
-          <span class="muted" id="freeform-hint">Uses the same Runs / Model / Max turns selected above.</span>
+          <span class="muted" id="freeform-hint">Settings above apply to this run only.</span>
           <button class="primary" id="freeform-run-btn" disabled>Run free format <span>→</span></button>
         </div>
       </div>

@@ -216,6 +216,15 @@ html, body {
 .stepper .step.error::before { background: var(--crimson); }
 .stepper .step[data-sid="summary"] { margin-left: auto; }
 
+/* Freeform-scenario tabs read distinct from catalog ones — they keep
+   the mono font but use the indigo signal color for their dot, since
+   freeform is conceptually closer to "a custom prompt" than "a catalog
+   scenario". The label keeps mono+upright per the global typography
+   restraint rules. */
+.stepper .step.freeform::before { background: var(--counter); }
+.stepper .step.freeform.active::after { background: var(--counter); }
+.stepper .step.freeform.done::before { background: var(--counter-vivid); }
+
 /* ═════════════════════════════════════════════════════════════
    Cards (flat white on cream — no shadow)
    ═════════════════════════════════════════════════════════════ */
@@ -518,6 +527,43 @@ html, body {
   outline: none;
   border-color: var(--signal);
 }
+.freeform-controls {
+  display: flex;
+  gap: 18px;
+  align-items: end;
+  flex-wrap: wrap;
+  margin: 6px 0 14px;
+  padding: 14px 16px;
+  background: var(--paper-50);
+  border: 1px solid var(--hair-2);
+  border-radius: var(--r-md);
+}
+.freeform-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-mute);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.freeform-controls select {
+  background: var(--paper-100);
+  border: 1px solid var(--hair-2);
+  border-radius: var(--r-md);
+  padding: 9px 12px;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 13px;
+  min-width: 110px;
+  font-variant-numeric: tabular-nums;
+}
+.freeform-controls select:focus {
+  outline: none;
+  border-color: var(--signal);
+}
+
 .freeform-actions {
   display: flex;
   align-items: center;

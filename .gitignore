@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 reports/*.md
 reports/*.pdf
+reports/*.json
 !reports/.gitkeep
 .DS_Store
 .env
