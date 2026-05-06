@@ -17,6 +17,8 @@ reports/commands.log
 *.png
 *.jpg
 *.jpeg
+!docs/screenshots/*.png
+!docs/screenshots/*.jpg
 .playwright-mcp/
 node_modules/
 
