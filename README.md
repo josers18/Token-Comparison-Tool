@@ -43,7 +43,7 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-14532D.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009485.svg)](https://fastapi.tiangolo.com/)
 [![Pydantic](https://img.shields.io/badge/Pydantic-2.9+-E92063.svg)](https://docs.pydantic.dev/)
-[![Tests: 72 passing](https://img.shields.io/badge/tests-72%20passing-16A34A.svg)](#testing)
+[![Tests: 81 passing](https://img.shields.io/badge/tests-81%20passing-16A34A.svg)](#testing)
 [![Powered by Claude Code](https://img.shields.io/badge/powered%20by-Claude%20Code-8A3FFC.svg)](https://docs.claude.com/en/docs/claude-code)
 
 A FastAPI + vanilla-JS web tool that benchmarks **token cost** between
@@ -149,6 +149,9 @@ sequenceDiagram
   `scenarios/`.
 - **Free-format mode** — write your own prompt in a textarea and run it
   through both paths.
+- **Load saved reports** — view any past benchmark in the same nice
+  interface. Pick from the dropdown of recent reports, or upload an
+  `.md` / `.json` file from another machine.
 - **Live progress** — Server-Sent Events stream every run as it
   completes; UI updates in place. Polling fallback for when SSE drops.
 - **Editorial summary** — auto-generated executive headline ("Native
@@ -263,10 +266,10 @@ notes: |
 .venv/bin/python -m pytest tests/ -q
 ```
 
-72 tests, ~0.3s. Coverage spans the runner (Bash + MCP shapes, JSON
+81 tests, ~0.3s. Coverage spans the runner (Bash + MCP shapes, JSON
 parsing, punt detection, max-turns handling, OAuth callback flow), the
-benchmark orchestrator, the report writer, the recommendations
-generator, and the analysis layer.
+benchmark orchestrator, the report writer + reverse parser, the
+recommendations generator, and the analysis layer.
 
 ## Security & privacy
 

@@ -13,10 +13,15 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import uvicorn
 
+from fastapi import UploadFile, File
+
 from token_compare.analysis import build_comparison, explain_comparison, extract_trace
 from token_compare.benchmark import BenchmarkOptions, ProgressEvent, run_benchmark
 from token_compare.preflight import check_environment
 from token_compare.report import default_report_path, write_markdown
+from token_compare.report_loader import (
+    list_reports, load_json_report, load_markdown_report,
+)
 from token_compare.models import Scenario, SuccessCriteria
 from token_compare.scenarios import load_all
 
@@ -92,6 +97,8 @@ def _prune_reports(reports_dir: Path, retain: int) -> None:
                    key=lambda p: p.stat().st_mtime, reverse=True)
     for old in files[retain:]:
         old.unlink(missing_ok=True)
+        # Also drop the JSON sidecar so we don't leak orphaned reload data.
+        old.with_suffix(".json").unlink(missing_ok=True)
 
 
 def create_app(config: AppConfig) -> FastAPI:
@@ -147,6 +154,12 @@ def create_app(config: AppConfig) -> FastAPI:
                 config.reports_dir.mkdir(parents=True, exist_ok=True)
                 out = default_report_path(config.reports_dir, result.started_at)
                 write_markdown(result, out, scenarios=picked_scenarios)
+                # JSON sidecar — clean reload path for /api/reports/.../data
+                json_path = out.with_suffix(".json")
+                json_path.write_text(
+                    json.dumps(result.model_dump(), indent=2, default=str),
+                    encoding="utf-8",
+                )
                 _prune_reports(config.reports_dir, config.reports_retain)
                 _current_run["result_data"] = result.model_dump()
                 _current_run["report_path"] = str(out)
@@ -257,6 +270,84 @@ def create_app(config: AppConfig) -> FastAPI:
             }
         analysis = build_summary_analysis(result_data, scenarios_meta)
         return analysis.model_dump()
+
+    @app.get("/api/reports")
+    def list_saved_reports() -> dict:
+        """List benchmark reports on disk, newest first. Limited to 10."""
+        items = list_reports(config.reports_dir)[:10]
+        return {"reports": items}
+
+    @app.get("/api/reports/{report_name}/data")
+    def load_saved_report(report_name: str) -> dict:
+        """Load a report by file name and hydrate it into _current_run so
+        the rest of the app behaves as if this were the most recent run."""
+        # Defense against path traversal: strip everything but the basename.
+        safe_name = Path(report_name).name
+        if not safe_name.startswith("benchmark-") or not safe_name.endswith(".md"):
+            return JSONResponse(
+                {"error": "report name must be benchmark-*.md"},
+                status_code=400,
+            )
+        md_path = config.reports_dir / safe_name
+        if not md_path.is_file():
+            return JSONResponse(
+                {"error": f"report {safe_name} not found"},
+                status_code=404,
+            )
+        return _hydrate_from_files(md_path)
+
+    @app.post("/api/reports/load")
+    async def upload_and_load_report(file: UploadFile = File(...)) -> dict:
+        """Upload a .md or .json report file and hydrate it into _current_run.
+        File contents are not persisted to disk — this is read-only viewing."""
+        contents = (await file.read()).decode("utf-8", errors="replace")
+        try:
+            if (file.filename or "").endswith(".json"):
+                result = load_json_report(contents)
+            else:
+                result = load_markdown_report(contents)
+        except Exception as e:
+            return JSONResponse(
+                {"error": f"failed to parse report: {e}"},
+                status_code=400,
+            )
+        return _hydrate_from_result(result, source=f"upload:{file.filename}")
+
+    def _hydrate_from_files(md_path: Path) -> dict:
+        """Prefer the JSON sidecar, fall back to parsing the markdown."""
+        json_path = md_path.with_suffix(".json")
+        try:
+            if json_path.is_file():
+                result = load_json_report(json_path.read_text(encoding="utf-8"))
+            else:
+                result = load_markdown_report(md_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            return JSONResponse(
+                {"error": f"failed to parse {md_path.name}: {e}"},
+                status_code=400,
+            )
+        return _hydrate_from_result(result, source=str(md_path))
+
+    def _hydrate_from_result(result, *, source: str) -> dict:
+        """Stuff a `BenchmarkResult` into the _current_run cache so the
+        existing /trace, /summary, /data endpoints serve this report."""
+        _current_run["active"] = False
+        _current_run["events"] = []
+        _current_run["started_at"] = result.started_at
+        _current_run["report_path"] = source
+        _current_run["result_data"] = result.model_dump()
+        _current_run["freeform_scenario"] = None
+        return {
+            "ok": True,
+            "scenario_count": len(result.scenarios),
+            "started_at": result.started_at,
+            "model": result.model,
+            "runs_per_path": result.runs_per_path,
+            "source": source,
+            # Echo the scenario IDs so the frontend can register them in
+            # state.scenarios for the stepper.
+            "scenario_ids": [s.scenario_id for s in result.scenarios],
+        }
 
     @app.post("/api/sf/login")
     async def sf_login() -> dict:

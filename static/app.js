@@ -53,6 +53,28 @@ async function init() {
     ffPrompt.addEventListener("input", updateEnabled);
     ffBtn.addEventListener("click", startFreeformRun);
   }
+
+  // Load saved report controls
+  const loadBtn = $("report-load-btn");
+  const reportPick = $("report-pick");
+  const reportUpload = $("report-upload");
+  if (loadBtn && reportPick && reportUpload) {
+    const updateLoadEnabled = () => {
+      loadBtn.disabled = !reportPick.value && !reportUpload.files?.length;
+    };
+    // Picking from the dropdown clears the upload, and vice versa — only
+    // one source at a time keeps the load action unambiguous.
+    reportPick.addEventListener("change", () => {
+      if (reportPick.value) reportUpload.value = "";
+      updateLoadEnabled();
+    });
+    reportUpload.addEventListener("change", () => {
+      if (reportUpload.files?.length) reportPick.value = "";
+      updateLoadEnabled();
+    });
+    loadBtn.addEventListener("click", loadSelectedReport);
+    populateReportPicker();
+  }
   $("sf-login-btn").addEventListener("click", async () => {
     const btn = $("sf-login-btn");
     const hint = $("sf-login-hint");
@@ -317,6 +339,125 @@ async function startFreeformRun() {
       if (r.ok) await hydrateSummaryFromBackend();
     } catch (_) {}
   }
+}
+
+// Populate the recent-reports dropdown from the server's reports/ directory.
+async function populateReportPicker() {
+  const sel = $("report-pick");
+  if (!sel) return;
+  try {
+    const res = await fetch("/api/reports");
+    if (!res.ok) return;
+    const body = await res.json();
+    sel.replaceChildren(
+      el("option", { attrs: { value: "" }, text: "(none — upload a file instead)" }),
+    );
+    for (const r of body.reports || []) {
+      // mtime → "May 6 · 16:38" so the user can spot the report they want
+      let label = r.name;
+      try {
+        const dt = new Date(r.mtime_iso);
+        const month = dt.toLocaleString("en-US", { month: "short" });
+        const day = dt.getDate();
+        const time = dt.toTimeString().slice(0, 5);
+        const sizeKb = Math.round((r.size_bytes || 0) / 1024);
+        label = `${r.name}  ·  ${month} ${day}, ${time}  ·  ${sizeKb} KB${r.has_json ? "" : " (md only)"}`;
+      } catch (_) {}
+      sel.appendChild(el("option", { attrs: { value: r.name }, text: label }));
+    }
+  } catch (_) { /* silent */ }
+}
+
+// Load whichever source the user picked: the dropdown name, or the upload.
+async function loadSelectedReport() {
+  const btn = $("report-load-btn");
+  const sel = $("report-pick");
+  const upload = $("report-upload");
+  const hint = $("report-load-hint");
+  if (!btn || !sel || !upload) return;
+
+  btn.disabled = true;
+  if (hint) hint.textContent = "Loading…";
+
+  try {
+    let summary;
+    if (sel.value) {
+      // Server-side: load by name.
+      const res = await fetch(`/api/reports/${encodeURIComponent(sel.value)}/data`);
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+      summary = body;
+    } else if (upload.files && upload.files[0]) {
+      // Client upload: POST as multipart/form-data.
+      const fd = new FormData();
+      fd.append("file", upload.files[0]);
+      const res = await fetch("/api/reports/load", { method: "POST", body: fd });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+      summary = body;
+    } else {
+      throw new Error("nothing selected");
+    }
+
+    // The backend hydrated _current_run for us. Pull the data and route the
+    // user to the right view: scenario detail if there's only one scenario
+    // (most freeform/single-run reports), otherwise the summary deck.
+    await registerLoadedScenarios(summary);
+    if (summary.scenario_count === 1 && summary.scenario_ids?.length === 1) {
+      showScenario(summary.scenario_ids[0]);
+    } else {
+      showSummary();
+    }
+  } catch (e) {
+    if (hint) hint.textContent = "Load failed: " + (e?.message || e);
+    btn.disabled = false;
+    return;
+  } finally {
+    btn.disabled = false;
+    if (hint && hint.textContent === "Loading…") hint.textContent = "Loaded.";
+  }
+}
+
+// After a load, register every scenario id from the report into state.scenarios
+// so the stepper has tabs for them, and pre-fetch each scenario's runs from the
+// freshly hydrated _current_run.
+async function registerLoadedScenarios(summary) {
+  const ids = summary.scenario_ids || [];
+  if (!ids.length) return;
+
+  // For any scenario we don't already have meta for, synthesize a minimal
+  // entry. We'll get title/category/difficulty from the catalog YAMLs if they
+  // match, otherwise the report's appendix shows the scenario_id only.
+  const knownIds = new Set(state.scenarios.map((s) => s.id));
+  for (const sid of ids) {
+    if (knownIds.has(sid)) continue;
+    state.scenarios.push({
+      id: sid,
+      title: prettyScenarioTitle(sid),
+      category: sid.startsWith("freeform_") ? "freeform" : "loaded",
+      difficulty: "medium",
+      prompt: "",
+    });
+  }
+  buildStepper();
+  // All loaded scenarios are "done" by definition — they've already run.
+  for (const sid of ids) setStepStatus(sid, "done");
+
+  // Pull the full BenchmarkResult so each scenario detail has run buckets.
+  try {
+    const res = await fetch("/api/reports/latest/data");
+    if (res.ok) {
+      const data = await res.json();
+      hydrateScenarioRunsFromData(data);
+      state.reportPath = summary.source || null;
+    }
+  } catch (_) { /* silent */ }
+}
+
+function prettyScenarioTitle(sid) {
+  // s01_soql_top_accounts → "soql top accounts"
+  const tail = sid.split("_").slice(1).join(" ");
+  return tail ? tail.replace(/\b\w/g, (c) => c.toUpperCase()) : sid;
 }
 
 function handleEvent(ev, onRunComplete) {

@@ -281,3 +281,68 @@ def test_summary_endpoint_returns_analysis(tmp_path):
     assert "scenarios" in body and len(body["scenarios"]) == 1
     assert "caveats" in body and isinstance(body["caveats"], list)
     assert body["scenarios"][0]["winner"] == "native"
+
+
+def test_list_reports_empty(client):
+    r = client.get("/api/reports")
+    assert r.status_code == 200
+    assert r.json() == {"reports": []}
+
+
+def test_list_and_load_report(client, tmp_path):
+    """Drop a report file in reports/ and confirm it lists + loads."""
+    from token_compare.report import write_markdown
+    from tests.test_report_loader import _make_benchmark
+    bench = _make_benchmark()
+    # The fixture uses tmp_path/reports as the reports_dir.
+    md_path = tmp_path / "reports" / "benchmark-2026-05-06-1000.md"
+    write_markdown(bench, md_path)
+
+    # List
+    r = client.get("/api/reports")
+    body = r.json()
+    assert len(body["reports"]) == 1
+    assert body["reports"][0]["name"] == "benchmark-2026-05-06-1000.md"
+    assert body["reports"][0]["has_json"] is False
+
+    # Load by name (markdown fallback path since no JSON sidecar)
+    r = client.get("/api/reports/benchmark-2026-05-06-1000.md/data")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["ok"] is True
+    assert body["scenario_count"] == 1
+    assert body["scenario_ids"] == ["s01_test_scenario"]
+
+    # And the trace endpoint should now serve this loaded report.
+    r = client.get("/api/scenarios/s01_test_scenario/trace")
+    assert r.status_code == 200, r.text
+    trace_body = r.json()
+    assert "native_traces" in trace_body and "mcp_traces" in trace_body
+
+
+def test_load_report_rejects_path_traversal(client):
+    """Names like ../etc/passwd must not escape the reports/ dir."""
+    r = client.get("/api/reports/..%2Fetc%2Fpasswd/data")
+    # FastAPI may either 404 (not under benchmark-*.md prefix) or 400.
+    # Either way: not 200, and must not leak a file from outside.
+    assert r.status_code in (400, 404)
+
+
+def test_load_report_uploaded_markdown(client, tmp_path):
+    """Upload a markdown report directly without it being on disk."""
+    from token_compare.report import write_markdown
+    from tests.test_report_loader import _make_benchmark
+    bench = _make_benchmark()
+    md_path = tmp_path / "uploaded.md"
+    write_markdown(bench, md_path)
+    text = md_path.read_text(encoding="utf-8")
+
+    r = client.post(
+        "/api/reports/load",
+        files={"file": ("uploaded.md", text, "text/markdown")},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["ok"] is True
+    assert body["scenario_count"] == 1
+    assert body["source"].startswith("upload:")
