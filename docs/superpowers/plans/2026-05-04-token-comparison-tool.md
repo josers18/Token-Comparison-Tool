@@ -1,5 +1,13 @@
 # Token Comparison Tool Implementation Plan
 
+> **Historical document.** This is the original implementation plan
+> generated alongside the design spec. The codebase has shipped this
+> plan and continued past it — see the [README](../../../README.md)
+> for current state, including features added after the original 14
+> tasks (free-format mode, load-saved-reports, JSON sidecar, brand
+> mark home affordance, etc.). Kept as a record of the original
+> task decomposition.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a local, git-distributed FastAPI + vanilla-JS web tool that runs a curated catalog of Salesforce Headless 360 scenarios twice each (Native path vs Salesforce-hosted MCP path), extracts token/cost telemetry from `claude -p --output-format json`, and renders an executive-grade side-by-side comparison with a summary + recommendations — in a single markdown report per run.

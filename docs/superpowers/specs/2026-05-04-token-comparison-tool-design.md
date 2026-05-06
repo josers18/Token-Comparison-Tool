@@ -3,6 +3,13 @@
 **Date:** 2026-05-04
 **Status:** Approved — ready for implementation planning
 
+> **Historical document.** This is the original RFC that initiated the
+> project. It captures the design decisions and trade-offs as they
+> were made, but the codebase has since grown features beyond this
+> spec (free-format mode, load-saved-reports, JSON sidecar, brand-mark
+> home affordance, etc.). For current behavior, see the [README](../../../README.md).
+> This document is kept as a record of the original design.
+
 ---
 
 ## 1. Purpose

@@ -34,8 +34,14 @@
 > ```
 >
 > **5.** Open <http://localhost:8000>, click **Connect Salesforce** to
-> authorize via OAuth, then **Run benchmark** — or scroll to the
-> **Free-format scenario** card to run a custom prompt.
+> authorize via OAuth, then choose how to start:
+>
+> - **Run benchmark** at the top — runs the full scenario catalog
+> - **Run free format** — write a custom prompt with your own model /
+>   runs / max-turns settings
+> - **Load report** — view a past benchmark in the same UI, either
+>   from the dropdown of recent reports or by uploading an
+>   `.md` / `.json` file
 
 ---
 
@@ -64,7 +70,10 @@ The only axis of variance is the tool provider.
 
 ### Catalog
 
-The benchmark catalog with a free-format scenario card at the bottom.
+The benchmark catalog. Below it (not shown in this older screenshot)
+you'll find two more cards: a **Free-format scenario** card with its
+own model / runs / max-turns controls, and a **Load saved report**
+card with a dropdown of recent reports + a file upload.
 
 ![Catalog](docs/screenshots/catalog.png)
 
@@ -72,7 +81,7 @@ The benchmark catalog with a free-format scenario card at the bottom.
 
 Per-scenario verdict bar, hero metrics, custom HTML/CSS comparison chart,
 editorial "Why these numbers differ" prose, and a turn-by-turn token
-trace.
+trace. Includes Export PDF + Download report at the bottom.
 
 ![Scenario detail](docs/screenshots/scenario-detail.png)
 
@@ -83,6 +92,10 @@ per-scenario cost bars, and an auto-generated framework grid for "When
 Native wins / When MCP wins".
 
 ![Summary](docs/screenshots/summary.png)
+
+> **Tip:** the green dot + wordmark in the top-left is a **home
+> button** — click it any time to return to the catalog without losing
+> in-progress work or loaded report state.
 
 ---
 
@@ -140,6 +153,18 @@ sequenceDiagram
     API-->>UI: data: { kind: "report_written" }
 ```
 
+### Three ways to put data on the screen
+
+| Path | Endpoint | When to use |
+|---|---|---|
+| Run the catalog | `POST /api/run` | Full comparison across every scenario in `scenarios/` (the default benchmark) |
+| Run a one-off prompt | `POST /api/run/freeform` | Ad-hoc question — each freeform scenario gets its own tab in the stepper with an indigo dot to distinguish it from catalog scenarios |
+| View a past benchmark | `GET /api/reports/{name}/data` or `POST /api/reports/load` | Reload a past report (server-side or upload a file). Hydrates the same in-memory state a live run produces, so the verdict / trace / summary views all work identically |
+
+All three end up in the same `_current_run["result_data"]` shape, so
+the trace, summary, and PDF export endpoints serve them
+identically — no special-case rendering paths.
+
 ---
 
 ## Features
@@ -147,11 +172,15 @@ sequenceDiagram
 - **Six-scenario catalog** — Sales Cloud SOQL through multi-DMO Customer
   360 joins. New scenarios are zero-code: drop a YAML file in
   `scenarios/`.
-- **Free-format mode** — write your own prompt in a textarea and run it
-  through both paths.
+- **Free-format mode** — write your own prompt in a textarea, pick
+  Runs / Model / Max turns independently of the catalog, and run it
+  through both paths. Each freeform scenario gets its own indigo-dot
+  tab in the stepper that you can navigate into mid-run.
 - **Load saved reports** — view any past benchmark in the same nice
-  interface. Pick from the dropdown of recent reports, or upload an
-  `.md` / `.json` file from another machine.
+  interface, even without re-running. Pick from a dropdown of the
+  10 most recent reports, or upload an `.md` / `.json` report file
+  from another machine. Works without Salesforce credentials —
+  read-only viewing.
 - **Live progress** — Server-Sent Events stream every run as it
   completes; UI updates in place. Polling fallback for when SSE drops.
 - **Editorial summary** — auto-generated executive headline ("Native
@@ -180,6 +209,7 @@ sequenceDiagram
 ```
 .
 ├── README.md                  ← you are here
+├── LICENSE                    ← MIT
 ├── pyproject.toml             ← Python package + dev deps
 ├── run.sh                     ← venv setup + uvicorn launcher
 ├── .env.example               ← OAuth ECA template (copy to .env.local)
@@ -194,11 +224,12 @@ sequenceDiagram
 │   ├── s05_opportunity_pipeline_report.yaml
 │   └── s06_customer_360_displaytech.yaml
 ├── src/token_compare/         ← backend
-│   ├── api.py                 ← FastAPI app + SSE
+│   ├── api.py                 ← FastAPI app + SSE + endpoints
 │   ├── benchmark.py           ← run_benchmark() orchestrator
 │   ├── runner.py              ← shared claude -p invoker
 │   ├── analysis.py            ← trace + executive summary
 │   ├── report.py              ← markdown writer
+│   ├── report_loader.py       ← reverse parser (.md / .json → BenchmarkResult)
 │   ├── recommendations.py
 │   ├── scenarios.py
 │   ├── preflight.py
@@ -206,15 +237,15 @@ sequenceDiagram
 │   ├── sf_auth.py             ← OAuth 2.1 + PKCE
 │   └── models.py              ← Pydantic types
 ├── static/                    ← single-page app
-│   ├── index.html
-│   ├── styles.css
-│   ├── app.js
-│   └── chart.min.js
+│   ├── index.html             ← catalog + freeform + load-report cards
+│   ├── styles.css             ← editorial light theme
+│   ├── app.js                 ← SPA controller (no innerHTML)
+│   └── chart.min.js           ← vendored Chart.js (legacy fallback)
 ├── docs/
-│   ├── screenshots/
-│   └── superpowers/specs/...  ← original design spec
-├── reports/                   ← generated markdown reports (gitignored)
-└── tests/                     ← pytest suite (72 tests)
+│   ├── screenshots/           ← README images
+│   └── superpowers/           ← original design spec + impl plan
+├── reports/                   ← generated reports (.md + .json sidecars; gitignored)
+└── tests/                     ← pytest suite (81 tests)
 ```
 
 ## Adding a scenario
@@ -255,10 +286,43 @@ notes: |
    parser still extracts JSON even when `claude` exits non-zero (e.g.,
    `--max-turns` reached). Punt responses ("I apologize...") are flagged
    as failed even when `is_error=false`.
-4. **Reports live in `reports/`.** One markdown file per benchmark run,
-   named `benchmark-YYYY-MM-DD-HHMM.md`. Ten most recent are retained.
-   The full audit log of every `claude -p` invocation goes to
+4. **Reports live in `reports/`.** Each completed benchmark writes both
+   `benchmark-YYYY-MM-DD-HHMM.md` (human-readable) and a
+   `benchmark-YYYY-MM-DD-HHMM.json` sidecar (clean reload format). Ten
+   most recent are retained; pruning drops both files together. The
+   full audit log of every `claude -p` invocation goes to
    `reports/commands.log` (also gitignored).
+5. **Loading old reports.** The "Load saved report" card on the
+   catalog reads from `reports/` server-side or accepts a file
+   upload. JSON sidecars deserialize directly; older `.md`-only
+   reports are reverse-parsed by walking the Appendix
+   `<details>` blocks and feeding each embedded raw_json back through
+   the same `parse_claude_json()` the live runner uses, recovering an
+   identical `RunResult`. Path traversal is blocked at the API
+   boundary — names must match `benchmark-*.md`.
+
+## HTTP API reference
+
+The frontend talks to these endpoints. They're also useful if you
+want to script the tool from the command line.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/preflight` | Verify Claude Code, sf CLI, MCP config, and Salesforce OAuth are ready |
+| `GET` | `/api/scenarios` | Return the scenario catalog (from `scenarios/*.yaml`) |
+| `POST` | `/api/run` | Start a catalog benchmark; streams SSE events for live progress |
+| `POST` | `/api/run/freeform` | Start a one-off benchmark with a custom prompt; streams SSE events |
+| `GET` | `/api/run/status` | Polling fallback for SSE — current state + accumulated events |
+| `GET` | `/api/reports` | List the 10 most recent reports on disk |
+| `GET` | `/api/reports/latest` | Download the latest `.md` report (also handles `HEAD`) |
+| `GET` | `/api/reports/latest/data` | Hydrate the latest run's `BenchmarkResult` JSON |
+| `GET` | `/api/reports/latest/summary` | Auto-generated executive summary for the latest run |
+| `GET` | `/api/reports/{name}/data` | Load a specific report by file name (path-traversal-safe) |
+| `POST` | `/api/reports/load` | Multipart upload an `.md` or `.json` report and load it |
+| `GET` | `/api/scenarios/{id}/trace` | Turn-by-turn trace + explanation paragraph for the most recently loaded benchmark's scenario |
+| `POST` | `/api/sf/login` | Trigger the OAuth 2.1 + PKCE browser flow; blocks until callback |
+| `POST` | `/api/sf/logout` | Clear the cached access token |
+| `GET` | `/callback` | OAuth redirect URI handler |
 
 ## Testing
 
@@ -277,8 +341,9 @@ recommendations generator, and the analysis layer.
   `SF_CLIENT_SECRET`.**
 - `.cache/sf-token.json` (the OAuth access token cache) is gitignored
   and stored with mode `0o600`.
-- `reports/*.md` and `reports/commands.log` are gitignored — they
-  contain prompts, token counts, and possibly customer data.
+- `reports/*.md`, `reports/*.json`, and `reports/commands.log` are
+  all gitignored — they contain prompts, token counts, raw `claude -p`
+  output, and possibly customer data from your org.
 - The frontend never uses `innerHTML` with interpolated data. All DOM
   construction goes through `document.createElement` + `textContent` /
   attribute setters to avoid XSS even in trace output.
