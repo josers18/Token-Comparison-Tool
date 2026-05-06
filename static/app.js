@@ -37,6 +37,11 @@ async function init() {
   renderSetup();
   $("run-btn").addEventListener("click", startRun);
   $("run-again").addEventListener("click", () => location.reload());
+  // Brand mark = "home". Returns the user to the catalog without
+  // discarding state — any in-progress run keeps streaming in the
+  // background; loaded report state stays available via the stepper.
+  const brandHome = $("brand-home");
+  if (brandHome) brandHome.addEventListener("click", goHome);
   const pdfBtn = $("export-pdf");
   if (pdfBtn) pdfBtn.addEventListener("click", exportPdf);
   const sPdfBtn = $("scenario-export-pdf");
@@ -1311,6 +1316,22 @@ function renderSetup() {
   $("scenario-view").hidden = true;
   $("summary-view").hidden = true;
   $("progress-view").hidden = true;
+}
+
+// Click handler for the brand mark — returns the user to the catalog
+// without tearing down any in-progress work. If a benchmark is mid-run,
+// SSE/polling continues and the user can navigate back into a scenario
+// tab from the stepper to watch its progress.
+function goHome() {
+  state.active = "setup";
+  // Clear "active" highlight on whatever step was visible.
+  document.querySelectorAll(".step.active").forEach((n) => {
+    n.classList.remove("active");
+  });
+  renderSetup();
+  // Scroll back to the top so the user lands on the catalog headline,
+  // not somewhere down by the freeform / load-report cards.
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 // Export the current benchmark as PDF by rendering every scenario detail page

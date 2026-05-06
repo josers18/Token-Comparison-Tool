@@ -89,6 +89,25 @@ html, body {
   font-size: 21px;
   letter-spacing: -0.02em;
   color: var(--ink);
+  /* Reset <button> defaults so the brand still reads as a wordmark. */
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  transition: opacity 160ms ease;
+}
+.brand:hover { opacity: 0.78; }
+.brand:hover .wordmark {
+  text-decoration: underline;
+  text-decoration-color: var(--signal);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+}
+.brand:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 4px;
+  border-radius: 2px;
 }
 .brand .dot {
   width: 26px; height: 26px;
