@@ -1,0 +1,13 @@
+id: s01_soql_top_accounts
+title: "Top 5 accounts by annual revenue"
+category: core-crm
+difficulty: simple
+prompt: |
+  List the top 5 Salesforce Accounts by AnnualRevenue descending.
+  Return each account's Name and AnnualRevenue as a simple list.
+expected_operations:
+  - sf data query / query_data_cloud
+success_criteria:
+  must_contain: ["Name", "AnnualRevenue"]
+notes: |
+  Baseline per-turn overhead for a trivial SOQL read.

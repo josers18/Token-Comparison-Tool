@@ -1,0 +1,27 @@
+[
+  {
+    "type": "system",
+    "subtype": "init",
+    "cwd": "/tmp",
+    "session_id": "00000000-0000-0000-0000-000000000000",
+    "tools": ["Bash"],
+    "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+  },
+  {
+    "type": "result",
+    "subtype": "error",
+    "is_error": true,
+    "duration_ms": 2000,
+    "num_turns": 1,
+    "result": "I was unable to complete the request.",
+    "error": "Tool execution failed",
+    "total_cost_usd": 0.005,
+    "usage": {
+      "input_tokens": 500,
+      "output_tokens": 40,
+      "cache_read_input_tokens": 0,
+      "cache_creation_input_tokens": 0
+    },
+    "terminal_reason": "error"
+  }
+]

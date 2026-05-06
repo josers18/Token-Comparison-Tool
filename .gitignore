@@ -1,0 +1,25 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+reports/*.md
+reports/*.pdf
+!reports/.gitkeep
+.DS_Store
+.env
+.env.local
+investigation/
+/.cache/
+src/*.egg-info/
+reports/commands.log
+
+# Dev artifacts — screenshots and tooling caches
+*.png
+*.jpg
+*.jpeg
+.playwright-mcp/
+node_modules/
+
+# IDE
+.vscode/
+.idea/

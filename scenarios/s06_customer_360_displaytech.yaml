@@ -1,0 +1,23 @@
+id: s06_customer_360_displaytech
+title: "Customer 360 view of unified account 'Displaytech'"
+category: data-360
+difficulty: complex
+prompt: |
+  In Data Cloud, build a Customer 360 view of the unified account named
+  'Displaytech'. Return:
+  (1) the unified account's name and unified ID;
+  (2) any source-system account IDs that resolved to this unified record;
+  (3) the count of related Financial_Trades records associated with this
+      account.
+expected_operations:
+  - "Native: sf data query across UnifiedssotAccountAcc__dlm, UnifiedLinkssotAccountAcc__dlm, Financial_Trades__dlm"
+  - "MCP: post_dc_query_sql with JOINs across the same DMOs"
+success_criteria:
+  must_contain: ["Displaytech"]
+notes: |
+  Tests cross-DMO traversal — the canonical Customer 360 pattern. Claude
+  must (a) find Displaytech in UnifiedssotAccountAcc__dlm (206 records),
+  (b) discover the Link DMO (UnifiedLinkssotAccountAcc__dlm) that maps
+  unified ID to source IDs, (c) join through to Financial_Trades__dlm
+  (1.6M rows) via the source AccountID__c. Both paths can succeed but
+  require multi-step reasoning and DMO relationship discovery.

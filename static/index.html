@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Token Comparison Tool — Salesforce MCP vs Native LLM</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=Geist:wght@300..600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <span class="dot"></span>
+      <span class="wordmark">Token Comparison Tool</span>
+      <span class="sub">Salesforce MCP vs Native</span>
+    </div>
+    <div class="status" id="preflight-status">checking…</div>
+  </header>
+
+  <main class="container">
+    <nav class="stepper" id="stepper" aria-label="Benchmark steps"></nav>
+
+    <section id="setup-view" class="card">
+      <h1 class="catalog-title">Compare <em>native tools</em> to <em>MCP</em>, run by run.</h1>
+      <p class="muted" id="catalog-summary">loading scenarios…</p>
+      <div class="catalog-meta" id="catalog-meta"></div>
+      <ul class="scenario-list" id="scenario-list"></ul>
+      <div class="controls">
+        <label>Runs / path
+          <select id="runs-per-path">
+            <option>1</option>
+            <option selected>3</option>
+            <option>5</option>
+          </select>
+        </label>
+        <label>Model
+          <select id="model">
+            <option>opus</option>
+            <option selected>sonnet</option>
+            <option>haiku</option>
+          </select>
+        </label>
+        <label>Max turns
+          <select id="max-turns">
+            <option>15</option>
+            <option selected>30</option>
+            <option>50</option>
+            <option>100</option>
+          </select>
+        </label>
+        <div></div>
+        <button class="primary" id="run-btn" disabled>Run benchmark <span>→</span></button>
+      </div>
+      <div id="preflight-remediation" class="remediation" hidden></div>
+      <div id="sf-login-row" class="sf-login-row" hidden>
+        <button class="secondary" id="sf-login-btn">Connect Salesforce</button>
+        <span class="muted" id="sf-login-hint">A browser window will open for login.</span>
+      </div>
+
+      <div class="freeform">
+        <h3 class="freeform-title">Free-format scenario</h3>
+        <p class="muted">Write your own prompt and run it through both paths. Useful for quick comparisons against scenarios that aren't in the catalog yet.</p>
+        <label class="freeform-field">
+          <span>Title <span class="freeform-optional">(optional)</span></span>
+          <input type="text" id="freeform-title" placeholder="Top customers by recurring revenue">
+        </label>
+        <label class="freeform-field">
+          <span>Prompt</span>
+          <textarea id="freeform-prompt" rows="6" placeholder="Describe the task in plain English. Claude will figure out the schema and which tools to use on each path."></textarea>
+        </label>
+        <div class="freeform-actions">
+          <span class="muted" id="freeform-hint">Uses the same Runs / Model / Max turns selected above.</span>
+          <button class="primary" id="freeform-run-btn" disabled>Run free format <span>→</span></button>
+        </div>
+      </div>
+    </section>
+
+    <section id="progress-view" class="card" hidden>
+      <h2>Running benchmark</h2>
+      <div class="progress-bar"><div class="fill" id="progress-fill"></div></div>
+      <p class="muted" id="progress-text">starting…</p>
+    </section>
+
+    <section id="scenario-view" class="card" hidden>
+      <div class="scenario-head">
+        <p class="muted" id="sv-meta"></p>
+        <h2 id="sv-title"></h2>
+        <blockquote id="sv-prompt"></blockquote>
+      </div>
+
+      <div class="verdict" id="sv-verdict" hidden>
+        <div class="verdict-icon" id="sv-verdict-icon">↓</div>
+        <div class="verdict-text" id="sv-verdict-text">—</div>
+        <div class="verdict-num" id="sv-verdict-num"></div>
+      </div>
+
+      <div class="dual">
+        <div class="panel native">
+          <h3>Native · path A</h3>
+          <div class="panel-status" id="sv-native-status">—</div>
+          <div class="hero" id="sv-native-input">—</div>
+          <div class="hero-label">input tokens</div>
+          <div class="panel-meta">
+            <div>Turns <span id="sv-native-turns">—</span></div>
+            <div>Cost / run <span id="sv-native-cost">—</span></div>
+          </div>
+          <ul class="tools" id="sv-native-tools"></ul>
+        </div>
+        <div class="panel mcp">
+          <h3>MCP · path B</h3>
+          <div class="panel-status" id="sv-mcp-status">—</div>
+          <div class="hero" id="sv-mcp-input">—</div>
+          <div class="hero-label">input tokens</div>
+          <div class="panel-meta">
+            <div>Turns <span id="sv-mcp-turns">—</span></div>
+            <div>Cost / run <span id="sv-mcp-cost">—</span></div>
+          </div>
+          <ul class="tools" id="sv-mcp-tools"></ul>
+        </div>
+      </div>
+
+      <div class="results-card">
+        <div class="chart-head">
+          <div class="headline" id="sv-headline">—</div>
+          <div class="legend-inline">
+            <span><span class="sw native"></span>Native</span>
+            <span><span class="sw mcp"></span>MCP</span>
+          </div>
+        </div>
+        <div class="chart-rows" id="sv-chart-rows"></div>
+        <canvas id="sv-chart" hidden></canvas>
+      </div>
+
+      <div class="trace-card" id="trace-card" hidden>
+        <div class="editorial">
+          <div class="ed-label">
+            <span class="marker"></span>
+            Why these numbers differ
+          </div>
+          <div class="explanation" id="trace-explanation">—</div>
+        </div>
+
+        <h3>Turn-by-turn trace</h3>
+        <p class="muted">
+          First successful run of each path (or first run if both failed).
+          <code>in</code> = total prompt tokens this turn (new + replayed from cache + freshly cached).
+          <code>out</code> = tokens generated. The breakdown shows what was new vs. cached — the large
+          cache write on turn 1 is tool-definitions loading into context.
+        </p>
+        <table class="trace-table">
+          <thead>
+            <tr>
+              <th>Turn</th>
+              <th>Native · path A</th>
+              <th>MCP · path B</th>
+            </tr>
+          </thead>
+          <tbody id="trace-tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="actions" id="scenario-actions">
+        <button id="scenario-export-pdf" class="secondary">⎙ Export PDF</button>
+        <a id="scenario-download-report" class="primary" href="#" download>↓ Download report</a>
+      </div>
+    </section>
+
+    <section id="summary-view" class="card" hidden>
+      <h2>Overall summary</h2>
+      <div class="hero-summary" id="summary-headline">—</div>
+      <p class="muted" id="summary-headline-caveat"></p>
+
+      <h3>Cost totals</h3>
+      <table class="summary-table">
+        <thead>
+          <tr><th></th><th>Native</th><th>MCP</th></tr>
+        </thead>
+        <tbody id="summary-tbody"></tbody>
+      </table>
+
+      <h3>Cost at scale</h3>
+      <p class="muted">Estimate monthly token spend if you ran each scenario this many times per month.</p>
+      <div class="scale-control">
+        <span class="muted" id="summary-scale-summary">—</span>
+        <label>Runs / scenario / mo
+          <input type="number" id="summary-scale" value="10000" min="1" step="1000">
+        </label>
+      </div>
+
+      <h3>Per-scenario cost</h3>
+      <ul class="summary-bars" id="summary-bars"></ul>
+      <canvas id="summary-chart" hidden></canvas>
+
+      <h3>When to use which</h3>
+      <div class="framework-grid">
+        <div class="framework-col" id="framework-native-col">
+          <h4>Native wins</h4>
+          <p id="framework-native-pattern">—</p>
+          <ul id="framework-native-bullets"></ul>
+        </div>
+        <div class="framework-col" id="framework-mcp-col">
+          <h4>MCP wins</h4>
+          <p id="framework-mcp-pattern">—</p>
+          <ul id="framework-mcp-bullets"></ul>
+        </div>
+      </div>
+
+      <h3>Caveats</h3>
+      <ul id="summary-caveats"></ul>
+
+      <div class="actions">
+        <button id="run-again" class="ghost">↻ Run again</button>
+        <button id="export-pdf" class="secondary">⎙ Export PDF</button>
+        <a id="download-report" class="primary" href="#" download>↓ Download report</a>
+      </div>
+    </section>
+  </main>
+
+  <script src="chart.min.js"></script>
+  <script>
+    // Cache-bust app.js on every page load so fixes take effect without
+    // forcing the user to hard-refresh or clear site data.
+    (function () {
+      var s = document.createElement("script");
+      s.src = "app.js?v=" + Date.now();
+      document.body.appendChild(s);
+    })();
+  </script>
+</body>
+</html>

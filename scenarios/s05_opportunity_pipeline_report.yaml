@@ -1,0 +1,18 @@
+id: s05_opportunity_pipeline_report
+title: "High-value open opportunity pipeline"
+category: core-crm
+difficulty: complex
+prompt: |
+  List open Salesforce Opportunities with Amount greater than $100,000.
+  Group the output by StageName. For each stage, report the opportunity
+  count, the total pipeline value, and the name of the largest single
+  opportunity in that stage along with its owner's name.
+expected_operations:
+  - "Native: sf data query Opportunity with aggregation + Owner relationship"
+  - "MCP: mcp__salesforce_crm__getObjectSchema + soqlQuery"
+success_criteria:
+  must_contain: ["StageName"]
+notes: |
+  Tests complex aggregation + relationship traversal (Owner.Name). Pure
+  Sales Cloud — no Data Cloud dependency — so both paths can realistically
+  succeed. Requires an org with open Opportunity records.

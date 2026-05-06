@@ -1,0 +1,16 @@
+id: s02_unified_profile_lookup
+title: "Unified account lookup by name"
+category: data-360
+difficulty: simple
+prompt: |
+  Find the unified account record for "Displaytech" in Data Cloud.
+  Return its unified ID and the source fields available on the unified record.
+expected_operations:
+  - "Native: sf CLI against UnifiedssotAccountAcc__dlm (challenging)"
+  - "MCP: mcp__data_cloud_queries__get_dc_metadata + post_dc_query_sql"
+success_criteria:
+  must_contain: ["Displaytech"]
+notes: |
+  Real unified account in UnifiedssotAccountAcc__dlm (206 records total).
+  Tests Data Cloud lookup — MCP has purpose-built tools; Native needs to
+  discover DMO names without help.

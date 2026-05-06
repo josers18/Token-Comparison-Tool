@@ -1,0 +1,21 @@
+id: s03_trade_volume_breakdown
+title: "Top trade types by volume and notional value"
+category: data-360
+difficulty: medium
+prompt: |
+  In Data Cloud, look at the Financial Trades data. Report a breakdown
+  of trade activity by trade type (e.g. Market Order, Limit Order). For
+  each trade type, return the number of trades and the total notional
+  value (price × quantity, or the trade total if available). Order the
+  result by trade count descending.
+expected_operations:
+  - "Native: sf data query against Financial_Trades__dlm with GROUP BY"
+  - "MCP: post_dc_query_sql with GROUP BY"
+success_criteria:
+  must_contain: ["Market Order"]
+notes: |
+  Real FSI dataset: 1,594,863 trades across 3 types (Market Order ~532k,
+  Limit Order ~531k, Stop Order ~531k). The DMO is Financial_Trades__dlm
+  with TradeType__c, Quantity__c, Price__c, Total_Trade__c. Both paths
+  must discover the DMO + field names. Tests schema discovery +
+  aggregation on a high-volume real FSI table.

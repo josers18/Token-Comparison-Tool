@@ -1,0 +1,16 @@
+id: s04_open_cases_by_priority
+title: "Open cases by priority"
+category: core-crm
+difficulty: medium
+prompt: |
+  In Salesforce, list all open Cases grouped by Priority. For each priority
+  level, report the number of open cases and the oldest one still open
+  (by CreatedDate).
+expected_operations:
+  - "Native: sf data query Case with GROUP BY Priority"
+  - "MCP: mcp__salesforce_crm__soqlQuery with aggregation"
+success_criteria:
+  must_contain: ["Priority"]
+notes: |
+  Tests SOQL aggregation + grouping — well within both paths' capabilities.
+  Requires an org with open Case records.

@@ -1,0 +1,11 @@
+id: s99_fixture
+title: "Fixture scenario"
+category: core-crm
+difficulty: simple
+prompt: |
+  Return the count of accounts.
+expected_operations:
+  - sf data query
+success_criteria:
+  must_contain: ["count"]
+notes: "fixture"

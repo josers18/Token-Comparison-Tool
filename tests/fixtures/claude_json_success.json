@@ -1,0 +1,92 @@
+[
+  {
+    "type": "system",
+    "subtype": "init",
+    "cwd": "/tmp",
+    "session_id": "00000000-0000-0000-0000-000000000000",
+    "tools": ["Bash"],
+    "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+  },
+  {
+    "type": "assistant",
+    "message": {
+      "model": "claude-haiku-4-5-20251001",
+      "id": "msg_001",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_001",
+          "name": "Bash",
+          "input": {
+            "command": "sf data query --query \"SELECT Id, Name, AnnualRevenue FROM Account ORDER BY AnnualRevenue DESC LIMIT 5\"",
+            "description": "Query top 5 accounts by AnnualRevenue"
+          }
+        }
+      ],
+      "usage": {
+        "input_tokens": 602,
+        "output_tokens": 59,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0
+      }
+    }
+  },
+  {
+    "type": "user",
+    "message": {
+      "role": "user",
+      "content": [
+        {
+          "tool_use_id": "toolu_001",
+          "type": "tool_result",
+          "content": "Id,Name,AnnualRevenue\n001xx000001,Acme Corp,5000000\n001xx000002,BigCo,4500000\n001xx000003,MegaInc,4000000\n001xx000004,HugeCo,3500000\n001xx000005,LargeCorp,3000000",
+          "is_error": false
+        }
+      ]
+    }
+  },
+  {
+    "type": "assistant",
+    "message": {
+      "model": "claude-haiku-4-5-20251001",
+      "id": "msg_002",
+      "content": [
+        {
+          "type": "text",
+          "text": "Here are the top 5 accounts by AnnualRevenue:\n1. Acme Corp - $5,000,000\n2. BigCo - $4,500,000\n3. MegaInc - $4,000,000\n4. HugeCo - $3,500,000\n5. LargeCorp - $3,000,000"
+        }
+      ],
+      "usage": {
+        "input_tokens": 602,
+        "output_tokens": 59,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0
+      }
+    }
+  },
+  {
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "duration_ms": 8432,
+    "num_turns": 2,
+    "result": "Here are the top 5 accounts by AnnualRevenue:\n1. Acme Corp - $5,000,000\n2. BigCo - $4,500,000\n3. MegaInc - $4,000,000\n4. HugeCo - $3,500,000\n5. LargeCorp - $3,000,000",
+    "total_cost_usd": 0.021,
+    "usage": {
+      "input_tokens": 1204,
+      "output_tokens": 118,
+      "cache_read_input_tokens": 0,
+      "cache_creation_input_tokens": 0
+    },
+    "modelUsage": {
+      "us.anthropic.claude-haiku-4-5-20251001-v1:0": {
+        "inputTokens": 1204,
+        "outputTokens": 118,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "costUSD": 0.021
+      }
+    },
+    "terminal_reason": "completed"
+  }
+]

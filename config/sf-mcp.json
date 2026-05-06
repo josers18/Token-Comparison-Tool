@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "salesforce_crm": {
+      "type": "http",
+      "url": "https://api.salesforce.com/platform/mcp/v1/platform/sobject-all",
+      "headers": {
+        "Authorization": "Bearer ${SF_ACCESS_TOKEN}"
+      }
+    },
+    "data_cloud_queries": {
+      "type": "http",
+      "url": "https://api.salesforce.com/platform/mcp/v1/data/data-cloud-queries",
+      "headers": {
+        "Authorization": "Bearer ${SF_ACCESS_TOKEN}"
+      }
+    }
+  }
+}
