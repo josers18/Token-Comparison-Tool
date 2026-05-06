@@ -359,7 +359,41 @@ html, body {
   transition: background 160ms ease;
 }
 .scenario-list li:last-child { border-bottom: 0; }
-.scenario-list li:hover { background: var(--paper-100); }
+.scenario-list li:not(.scenario-list-header):hover { background: var(--paper-100); }
+
+/* Header row — column titles + master checkbox. Uses the same grid
+   columns as data rows so labels align with their data. */
+.scenario-list-header {
+  background: var(--paper-100);
+  border-bottom: 1px solid var(--hair-2) !important;
+  cursor: default;
+}
+.scenario-list-header .col-id,
+.scenario-list-header .col-title,
+.scenario-list-header .col-scope,
+.scenario-list-header .col-difficulty {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-mute);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+/* The master checkbox uses the same green-fill style as data rows,
+   plus an indeterminate-state dash for partial selection. */
+.scenario-list-header input[type="checkbox"]:indeterminate {
+  background: var(--signal);
+  border-color: var(--signal);
+}
+.scenario-list-header input[type="checkbox"]:indeterminate::after {
+  content: '';
+  position: absolute;
+  left: 3px; top: 7px;
+  width: 9px; height: 2px;
+  background: #fff;
+  border: 0;
+  transform: none;
+}
 
 .scenario-list input[type="checkbox"] {
   appearance: none;

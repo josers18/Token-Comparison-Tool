@@ -26,7 +26,15 @@
       <h1 class="catalog-title">Compare <em>native tools</em> to <em>MCP</em>, run by run.</h1>
       <p class="muted" id="catalog-summary">loading scenarios…</p>
       <div class="catalog-meta" id="catalog-meta"></div>
-      <ul class="scenario-list" id="scenario-list"></ul>
+      <ul class="scenario-list" id="scenario-list">
+        <li class="scenario-list-header">
+          <input type="checkbox" id="scenario-list-toggle-all" aria-label="Select or unselect all scenarios">
+          <span class="col-id">ID</span>
+          <span class="col-title">Scenario</span>
+          <span class="col-scope">Scope</span>
+          <span class="col-difficulty">Difficulty</span>
+        </li>
+      </ul>
       <div class="controls">
         <label>Runs / path
           <select id="runs-per-path">

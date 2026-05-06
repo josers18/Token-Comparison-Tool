@@ -136,7 +136,8 @@ async function loadScenarios() {
   }
 
   const list = $("scenario-list");
-  list.replaceChildren();
+  // Preserve the static header row at the top — only wipe the data rows.
+  list.querySelectorAll("li:not(.scenario-list-header)").forEach((n) => n.remove());
   for (const s of state.scenarios) {
     const checkbox = el("input", {
       attrs: { type: "checkbox", "data-sid": s.id, checked: "checked" },
@@ -159,9 +160,70 @@ async function loadScenarios() {
     list.appendChild(el("li", {}, checkbox, sid, title, scope, tag));
   }
 
+  // Wire the "select all" checkbox + sync indeterminate state.
+  wireScenarioSelectAll();
+
   if (state.preflight?.ok) $("run-btn").disabled = false;
   else showRemediation();
   buildStepper();
+}
+
+// Connect the master checkbox to the per-row checkboxes:
+//  - Click master → toggles all rows to match
+//  - Click a row → updates master to "all checked", "none checked", or
+//    indeterminate based on the new collective state
+function wireScenarioSelectAll() {
+  const list = $("scenario-list");
+  if (!list) return;
+
+  // Look up by id every time — these helpers are called from listeners
+  // that may outlive the original master <input> if the DOM changes.
+  const getMaster = () => $("scenario-list-toggle-all");
+  const dataCheckboxes = () =>
+    Array.from(list.querySelectorAll("li:not(.scenario-list-header) input[type=checkbox]"));
+
+  const syncMasterFromRows = () => {
+    const master = getMaster();
+    if (!master) return;
+    const all = dataCheckboxes();
+    if (!all.length) {
+      master.checked = false;
+      master.indeterminate = false;
+      return;
+    }
+    const checked = all.filter((c) => c.checked).length;
+    if (checked === 0) {
+      master.checked = false;
+      master.indeterminate = false;
+    } else if (checked === all.length) {
+      master.checked = true;
+      master.indeterminate = false;
+    } else {
+      master.checked = false;
+      master.indeterminate = true;
+    }
+  };
+
+  // Idempotent listener attachment — the data attribute marks that we've
+  // wired the master and the delegated row listener already.
+  if (!list.dataset.toggleAllWired) {
+    list.addEventListener("change", (e) => {
+      if (!(e.target instanceof HTMLInputElement)) return;
+      if (e.target.id === "scenario-list-toggle-all") {
+        // Master toggled → sync all data rows.
+        const want = e.target.checked;
+        for (const c of dataCheckboxes()) c.checked = want;
+        e.target.indeterminate = false;
+        return;
+      }
+      if (e.target.matches("li:not(.scenario-list-header) input[type=checkbox]")) {
+        syncMasterFromRows();
+      }
+    });
+    list.dataset.toggleAllWired = "1";
+  }
+
+  syncMasterFromRows();
 }
 
 function showRemediation() {
