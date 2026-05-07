@@ -73,7 +73,10 @@ The only axis of variance is the tool provider.
 The benchmark catalog. Below it (not shown in this older screenshot)
 you'll find two more cards: a **Free-format scenario** card with its
 own model / runs / max-turns controls, and a **Load saved report**
-card with a dropdown of recent reports + a file upload.
+card with a dropdown of recent reports + a file upload. The list
+itself has a column header row with **ID / Scenario / Scope /
+Difficulty** labels and a tri-state master checkbox to select or
+deselect every scenario at once.
 
 ![Catalog](docs/screenshots/catalog.png)
 
@@ -171,7 +174,9 @@ identically — no special-case rendering paths.
 
 - **Six-scenario catalog** — Sales Cloud SOQL through multi-DMO Customer
   360 joins. New scenarios are zero-code: drop a YAML file in
-  `scenarios/`.
+  `scenarios/`. The catalog table has a header row with column titles
+  and a tri-state select-all checkbox so you can run a subset without
+  clicking through every row.
 - **Free-format mode** — write your own prompt in a textarea, pick
   Runs / Model / Max turns independently of the catalog, and run it
   through both paths. Each freeform scenario gets its own indigo-dot
