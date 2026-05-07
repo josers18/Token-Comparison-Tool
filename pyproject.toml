@@ -29,7 +29,11 @@ token-compare = "token_compare.api:main"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-q"
+# -p no:postgresql disables pytest-postgresql's autoloaded fixtures, which
+# require libpq present on the host. tests/test_db.py opts into a Postgres
+# fixture explicitly via TEST_DATABASE_URL; we don't want the rest of the
+# suite to fail on import just because libpq isn't installed.
+addopts = "-q -p no:postgresql"
 
 [build-system]
 requires = ["setuptools>=68"]

@@ -41,10 +41,16 @@ def test_unknown_model_returns_zero():
 def test_haiku_priced():
     assert "claude-4-5-haiku" in MODEL_PRICES
     p = MODEL_PRICES["claude-4-5-haiku"]
-    assert p["input"] > 0 and p["output"] > p["input"]
+    assert p["input"] == 1.00
+    assert p["output"] == 5.00
+    assert p["cache_read"] == 0.10
+    assert p["cache_creation"] == 1.25
 
 
 def test_opus_priced():
     assert "claude-opus-4-5" in MODEL_PRICES
     p = MODEL_PRICES["claude-opus-4-5"]
-    assert p["input"] > 0 and p["output"] > p["input"]
+    assert p["input"] == 15.00
+    assert p["output"] == 75.00
+    assert p["cache_read"] == 1.50
+    assert p["cache_creation"] == 18.75
