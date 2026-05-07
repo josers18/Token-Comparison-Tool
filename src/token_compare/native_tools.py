@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote
 import httpx
 
 # Pinned version — bump when we want new SOQL/REST features.
@@ -105,7 +106,10 @@ def _execute_soql(args: dict, token: dict) -> dict:
 
 def _describe_object(args: dict, token: dict) -> dict:
     base = token["instance_url"].rstrip("/")
-    url = f"{base}/services/data/{_API_VERSION}/sobjects/{args['name']}/describe"
+    # Percent-escape the name so a confused model can't slip ".." or "?"
+    # into the path and reach a sibling REST endpoint.
+    safe_name = quote(args["name"], safe="")
+    url = f"{base}/services/data/{_API_VERSION}/sobjects/{safe_name}/describe"
     try:
         resp = httpx.get(url, headers=_headers(token), params={}, timeout=_REST_TIMEOUT_S)
         resp.raise_for_status()
