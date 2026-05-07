@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import secrets
@@ -9,6 +10,7 @@ import asyncpg
 
 
 _pool: Optional[asyncpg.Pool] = None
+_pool_lock = asyncio.Lock()
 
 
 SCHEMA = """
@@ -66,11 +68,17 @@ async def connect() -> asyncpg.Pool:
     global _pool
     if _pool is not None:
         return _pool
-    url = os.environ.get("DATABASE_URL")
-    if not url:
-        raise RuntimeError("DATABASE_URL is not set")
-    _pool = await asyncpg.create_pool(_normalize_url(url), min_size=1, max_size=4)
-    return _pool
+    # Serialize first-time pool creation so concurrent first-callers don't
+    # each spin up their own pool and leak the loser. Re-check inside the
+    # lock — the first holder may have already created it while we waited.
+    async with _pool_lock:
+        if _pool is not None:
+            return _pool
+        url = os.environ.get("DATABASE_URL")
+        if not url:
+            raise RuntimeError("DATABASE_URL is not set")
+        _pool = await asyncpg.create_pool(_normalize_url(url), min_size=1, max_size=4)
+        return _pool
 
 
 async def close() -> None:
@@ -97,6 +105,13 @@ async def create_session() -> str:
 
 
 async def put_sf_token(session_id: str, token: dict[str, Any]) -> None:
+    """Store the SF OAuth token JSON under an existing session id.
+
+    Silently no-ops if the session row doesn't exist — the API layer is
+    expected to call create_session() first. A vanished session manifests
+    downstream as get_sf_token() returning None, which the API surfaces to
+    the user as "Salesforce login required".
+    """
     pool = await connect()
     async with pool.acquire() as conn:
         await conn.execute(
