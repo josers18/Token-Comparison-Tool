@@ -27,7 +27,8 @@ def test_run_benchmark_shape(tmp_path):
         return r
 
     opts = BenchmarkOptions(model="m", max_turns=5, timeout_s=5, runs_per_path=2,
-                            mcp_config_path=mcp_cfg, operator="me", org_name="org")
+                            mcp_template_path=mcp_cfg, operator="me", org_name="org",
+                            sf_token={"access_token": "T", "instance_url": "https://x"})
 
     with patch("token_compare.benchmark.run_once", side_effect=fake_run_once), \
          patch("token_compare.benchmark._git_sha", return_value="abc123"):
@@ -51,7 +52,8 @@ def test_run_benchmark_emits_progress(tmp_path):
         return _fake_run(0.01)
 
     opts = BenchmarkOptions(model="m", max_turns=5, timeout_s=5, runs_per_path=1,
-                            mcp_config_path=mcp_cfg, operator="me", org_name="org")
+                            mcp_template_path=mcp_cfg, operator="me", org_name="org",
+                            sf_token={"access_token": "T", "instance_url": "https://x"})
 
     with patch("token_compare.benchmark.run_once", side_effect=fake_run_once), \
          patch("token_compare.benchmark._git_sha", return_value="abc"):
@@ -74,7 +76,8 @@ def test_run_benchmark_randomizes_path_order(tmp_path):
         return _fake_run(0.01)
 
     opts = BenchmarkOptions(model="m", max_turns=5, timeout_s=5, runs_per_path=3,
-                            mcp_config_path=mcp_cfg, operator="me", org_name="org")
+                            mcp_template_path=mcp_cfg, operator="me", org_name="org",
+                            sf_token={"access_token": "T", "instance_url": "https://x"})
 
     with patch("token_compare.benchmark.run_once", side_effect=fake_run_once), \
          patch("token_compare.benchmark._git_sha", return_value="abc"), \
@@ -84,37 +87,5 @@ def test_run_benchmark_randomizes_path_order(tmp_path):
     assert observed_order == [PathName.MCP, PathName.NATIVE] * 3
 
 
-def test_run_benchmark_resolves_mcp_config_when_creds_set(tmp_path, monkeypatch):
-    """When SF creds are set, effective mcp_config_path should be the resolved temp file."""
-    monkeypatch.setenv("SF_CLIENT_ID", "cid")
-    monkeypatch.setenv("SF_CLIENT_SECRET", "sec")
-    monkeypatch.setenv("SF_LOGIN_URL", "https://x.my.salesforce.com")
-
-    scenarios = [_mk_scenario("s01")]
-    mcp_cfg = tmp_path / "sf-mcp.json"
-    mcp_cfg.write_text('{"mcpServers":{"x":{"url":"h","headers":{"Authorization":"Bearer ${SF_ACCESS_TOKEN}"}}}}')
-
-    captured_paths = []
-
-    def fake_run_once(scenario, path, *, mcp_config_path, **kwargs):
-        captured_paths.append((path, str(mcp_config_path)))
-        return _fake_run(0.01)
-
-    def fake_fetch(creds, **kw):
-        from token_compare.sf_auth import AccessToken
-        return AccessToken(access_token="LIVE_TOK", instance_url="https://x", scope="api")
-
-    opts = BenchmarkOptions(model="m", max_turns=5, timeout_s=5, runs_per_path=1,
-                            mcp_config_path=mcp_cfg, operator="me", org_name="org")
-
-    with patch("token_compare.benchmark.run_once", side_effect=fake_run_once), \
-         patch("token_compare.benchmark.fetch_access_token", side_effect=fake_fetch), \
-         patch("token_compare.benchmark._git_sha", return_value="abc"):
-        run_benchmark(scenarios, opts)
-
-    # MCP run should have received a temp path (NOT the original mcp_cfg)
-    mcp_paths = [p for kind, p in captured_paths if kind.value == "mcp"]
-    assert len(mcp_paths) == 1
-    assert mcp_paths[0] != str(mcp_cfg)
-    # The resolved file was deleted at the end
-    assert not Path(mcp_paths[0]).exists()
+# Removed test_run_benchmark_resolves_mcp_config_when_creds_set:
+# resolve_template behavior is retired — tokens now flow from api.py → benchmark → messages_runner without temp files.

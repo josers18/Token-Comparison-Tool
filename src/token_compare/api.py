@@ -192,11 +192,13 @@ def create_app(config: AppConfig) -> FastAPI:
         if not picked:
             picked = all_scenarios
 
+        # FIXME(task 10.1): plumb sf_token from sessions DB
         options = BenchmarkOptions(
             model=req.model, max_turns=req.max_turns, timeout_s=req.timeout_s,
             runs_per_path=req.runs_per_path,
-            mcp_config_path=config.mcp_config_path,
+            mcp_template_path=config.mcp_config_path,
             operator=req.operator, org_name=req.org_name,
+            sf_token={"access_token": "STUB", "instance_url": "https://x"},
         )
         return _start_benchmark_stream(picked, options)
 
@@ -223,11 +225,13 @@ def create_app(config: AppConfig) -> FastAPI:
             prompt=prompt,
             success_criteria=SuccessCriteria(),
         )
+        # FIXME(task 10.1): plumb sf_token from sessions DB
         options = BenchmarkOptions(
             model=req.model, max_turns=req.max_turns, timeout_s=req.timeout_s,
             runs_per_path=req.runs_per_path,
-            mcp_config_path=config.mcp_config_path,
+            mcp_template_path=config.mcp_config_path,
             operator=req.operator, org_name=req.org_name,
+            sf_token={"access_token": "STUB", "instance_url": "https://x"},
         )
         return _start_benchmark_stream(
             [scenario], options, freeform_scenario=scenario,

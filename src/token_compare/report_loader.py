@@ -24,7 +24,7 @@ from token_compare.models import (
     ScenarioResult,
     SuccessCriteria,
 )
-from token_compare.runner import parse_claude_json
+from token_compare.legacy_parser import parse_claude_json
 
 
 # Lines like:
