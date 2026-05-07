@@ -145,6 +145,69 @@ def test_mcp_path_passes_mcp_servers_not_tools(monkeypatch, tmp_path):
     assert "tools" not in kwargs
 
 
+def test_mcp_path_flags_unresolved_tool_use(monkeypatch, tmp_path):
+    """If Inference returns stop_reason='tool_use' on the MCP path, the
+    connector did NOT resolve the call server-side — record an explicit
+    error rather than silently truncating the conversation."""
+    cfg = tmp_path / "sf-mcp.json"
+    cfg.write_text(
+        '{"mcpServers":{"x":{"type":"http","url":"https://example",'
+        '"headers":{"Authorization":"Bearer ${SF_ACCESS_TOKEN}"}}}}'
+    )
+    tu = MagicMock()
+    tu.type = "tool_use"
+    tu.name = "some_mcp_tool"
+    tu.id = "tu_1"
+    tu.input = {}
+    r = _make_msg_response(
+        stop_reason="tool_use", content=[tu],
+        usage={"input_tokens": 10, "output_tokens": 5},
+    )
+    fake_client = MagicMock()
+    fake_client.messages.create.return_value = r
+    monkeypatch.setattr(
+        "token_compare.messages_runner.get_client_for_model",
+        lambda mid: fake_client,
+    )
+    result = run_once(
+        _scenario(), PathName.MCP,
+        model="claude-4-5-sonnet", max_turns=5, timeout_s=60,
+        mcp_template_path=cfg,
+        sf_token={"access_token": "TOK", "instance_url": "https://x"},
+    )
+    assert result.succeeded is False
+    assert "mcp_unresolved_tool_use" in (result.error or "")
+
+
+def test_raw_json_populated_with_legacy_event_shape(monkeypatch, tmp_path):
+    """raw_json must be a list of {type:...} dicts so analysis.extract_trace
+    works without code changes from the local-tool era."""
+    text = MagicMock()
+    text.type = "text"
+    text.text = "Done."
+    r = _make_msg_response(
+        stop_reason="end_turn", content=[text],
+        usage={"input_tokens": 5, "output_tokens": 2},
+    )
+    fake_client = MagicMock()
+    fake_client.messages.create.return_value = r
+    monkeypatch.setattr(
+        "token_compare.messages_runner.get_client_for_model",
+        lambda mid: fake_client,
+    )
+    result = run_once(
+        _scenario(), PathName.NATIVE,
+        model="claude-4-5-sonnet", max_turns=5, timeout_s=60,
+        mcp_template_path=tmp_path / "unused.json",
+        sf_token={"access_token": "T", "instance_url": "https://x"},
+    )
+    assert isinstance(result.raw_json, list)
+    types = [ev.get("type") for ev in result.raw_json]
+    assert types[0] == "system"  # init seed
+    assert "assistant" in types
+    assert "result" in types  # final-text terminator
+
+
 def test_inference_5xx_retried_then_fails(monkeypatch, tmp_path):
     import anthropic
     fake_client = MagicMock()
