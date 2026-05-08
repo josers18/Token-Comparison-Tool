@@ -23,7 +23,7 @@ from token_compare.report_loader import (
     list_reports, load_json_report, load_markdown_report,
 )
 from token_compare.models import Scenario, SuccessCriteria
-from token_compare.scenarios import load_all
+from token_compare.scenarios import load_all, load_all_from_db, seed_from_yaml_if_empty
 
 
 # Pending OAuth round-trips (state → session_id, PKCE verifier) are
@@ -161,6 +161,22 @@ def create_app(config: AppConfig) -> FastAPI:
         from token_compare import db
         await db.connect()
         await db.migrate()
+        # On first boot the scenarios table is empty — import the
+        # YAML catalog so the existing 6 scenarios are immediately
+        # available. Idempotent: no-op once the table has rows.
+        try:
+            inserted = await seed_from_yaml_if_empty(config.scenarios_dir)
+            if inserted:
+                import logging
+                logging.getLogger(__name__).info(
+                    "seeded %d scenarios from %s into the scenarios table",
+                    inserted, config.scenarios_dir,
+                )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                "scenario seed failed (will retry next boot): %s", e,
+            )
 
     @app.on_event("shutdown")
     async def _shutdown() -> None:
@@ -225,8 +241,8 @@ def create_app(config: AppConfig) -> FastAPI:
         return JSONResponse(body, headers=_NO_STORE)
 
     @app.get("/api/scenarios")
-    def list_scenarios() -> JSONResponse:
-        body = [s.model_dump() for s in load_all(config.scenarios_dir)]
+    async def list_scenarios() -> JSONResponse:
+        body = [s.model_dump() for s in await load_all_from_db()]
         return JSONResponse(body, headers=_NO_STORE)
 
     @app.get("/api/models")
@@ -234,6 +250,137 @@ def create_app(config: AppConfig) -> FastAPI:
         from token_compare.inference_client import discover_models
         body = {"models": [m.model_id for m in discover_models()]}
         return JSONResponse(body, headers=_NO_STORE)
+
+    # ─── Admin endpoints (gated by ADMIN_TOKEN env var) ────────────────
+    #
+    # These power the /admin scenario CRUD UI. The token is checked
+    # against `Authorization: Bearer <token>` on every admin request.
+    # If ADMIN_TOKEN isn't set on the dyno, every admin call returns
+    # 503 — administrators must set the env var explicitly.
+
+    def _check_admin_token(request: Request) -> Optional[JSONResponse]:
+        """Returns None if the request is authorized; otherwise an
+        error JSONResponse the caller should return immediately."""
+        expected = os.environ.get("ADMIN_TOKEN")
+        if not expected:
+            return JSONResponse(
+                {"error": "admin endpoints disabled (ADMIN_TOKEN not set on the server)"},
+                status_code=503,
+            )
+        auth = request.headers.get("Authorization", "")
+        prefix = "Bearer "
+        provided = auth[len(prefix):] if auth.startswith(prefix) else ""
+        # Constant-time compare so token-length differences don't leak.
+        import hmac
+        if not provided or not hmac.compare_digest(provided, expected):
+            return JSONResponse(
+                {"error": "invalid or missing admin token"},
+                status_code=401,
+            )
+        return None
+
+    class ScenarioPayload(BaseModel):
+        id: str
+        title: str
+        category: str
+        difficulty: str = "medium"  # simple | medium | complex
+        prompt: str
+        expected_operations: list[str] = []
+        success_criteria: dict = {"must_contain": []}
+        notes: str = ""
+        is_active: bool = True
+
+    @app.get("/api/admin/scenarios")
+    async def admin_list_scenarios(request: Request):
+        guard = _check_admin_token(request)
+        if guard is not None:
+            return guard
+        from token_compare import db
+        rows = await db.list_scenarios(include_inactive=True)
+        # Convert datetimes for JSON.
+        from datetime import datetime as _dt
+        for r in rows:
+            for k in ("created_at", "updated_at"):
+                if isinstance(r.get(k), _dt):
+                    r[k] = r[k].isoformat()
+        return JSONResponse({"scenarios": rows}, headers=_NO_STORE)
+
+    @app.post("/api/admin/scenarios")
+    async def admin_create_scenario(payload: ScenarioPayload, request: Request):
+        guard = _check_admin_token(request)
+        if guard is not None:
+            return guard
+        from token_compare import db
+        # Reject if id already exists — admin should use PUT to edit.
+        existing = await db.get_scenario(payload.id)
+        if existing:
+            return JSONResponse(
+                {"error": f"scenario {payload.id!r} already exists; use PUT to edit"},
+                status_code=409,
+            )
+        await db.upsert_scenario(
+            id=payload.id, title=payload.title, category=payload.category,
+            difficulty=payload.difficulty, prompt=payload.prompt,
+            expected_operations=payload.expected_operations,
+            success_criteria=payload.success_criteria,
+            notes=payload.notes, is_active=payload.is_active,
+        )
+        return {"ok": True, "id": payload.id}
+
+    @app.put("/api/admin/scenarios/{scenario_id}")
+    async def admin_update_scenario(
+        scenario_id: str, payload: ScenarioPayload, request: Request,
+    ):
+        guard = _check_admin_token(request)
+        if guard is not None:
+            return guard
+        # The path id wins over the body id so the URL is the canonical
+        # reference. The body id (if different) is silently ignored.
+        from token_compare import db
+        existing = await db.get_scenario(scenario_id)
+        if not existing:
+            return JSONResponse(
+                {"error": f"scenario {scenario_id!r} not found"},
+                status_code=404,
+            )
+        await db.upsert_scenario(
+            id=scenario_id, title=payload.title, category=payload.category,
+            difficulty=payload.difficulty, prompt=payload.prompt,
+            expected_operations=payload.expected_operations,
+            success_criteria=payload.success_criteria,
+            notes=payload.notes, is_active=payload.is_active,
+        )
+        return {"ok": True, "id": scenario_id}
+
+    @app.delete("/api/admin/scenarios/{scenario_id}")
+    async def admin_soft_delete_scenario(scenario_id: str, request: Request):
+        """Soft-delete: set is_active=false. Historical reports
+        referencing this scenario_id still resolve title/category."""
+        guard = _check_admin_token(request)
+        if guard is not None:
+            return guard
+        from token_compare import db
+        ok = await db.set_scenario_active(scenario_id, is_active=False)
+        if not ok:
+            return JSONResponse(
+                {"error": f"scenario {scenario_id!r} not found"},
+                status_code=404,
+            )
+        return {"ok": True, "id": scenario_id, "is_active": False}
+
+    @app.post("/api/admin/scenarios/{scenario_id}/restore")
+    async def admin_restore_scenario(scenario_id: str, request: Request):
+        guard = _check_admin_token(request)
+        if guard is not None:
+            return guard
+        from token_compare import db
+        ok = await db.set_scenario_active(scenario_id, is_active=True)
+        if not ok:
+            return JSONResponse(
+                {"error": f"scenario {scenario_id!r} not found"},
+                status_code=404,
+            )
+        return {"ok": True, "id": scenario_id, "is_active": True}
 
     def _start_benchmark_stream(
         picked_scenarios: list[Scenario],
@@ -341,7 +488,7 @@ def create_app(config: AppConfig) -> FastAPI:
                                 max_age=60 * 60 * 24 * 30)
             return resp
 
-        all_scenarios = load_all(config.scenarios_dir)
+        all_scenarios = await load_all_from_db()
         # Filter out None/empty entries the SPA may have submitted (e.g. a
         # master checkbox without data-sid).
         wanted = {sid for sid in (req.scenario_ids or []) if sid}
@@ -492,9 +639,13 @@ def create_app(config: AppConfig) -> FastAPI:
         result_data = await _ensure_latest_in_cache()
         if not result_data:
             return JSONResponse({"error": "no benchmark cached"}, status_code=404)
+        # Pull from DB (active + inactive both — historical reports may
+        # reference soft-deleted scenarios and we still want their title).
+        from token_compare import db as _db
+        all_db_scenarios = await _db.list_scenarios(include_inactive=True)
         scenarios_meta = {
-            s.id: {"title": s.title, "category": s.category, "difficulty": s.difficulty}
-            for s in load_all(config.scenarios_dir)
+            s["id"]: {"title": s["title"], "category": s["category"], "difficulty": s["difficulty"]}
+            for s in all_db_scenarios
         }
         # Freeform scenarios aren't on disk; merge their meta from the run cache.
         ff = _current_run.get("freeform_scenario")

@@ -37,6 +37,28 @@ def _stub_db(monkeypatch):
     monkeypatch.setattr(db, "put_pending_login", _noop)
     monkeypatch.setattr(db, "pop_pending_login", _none)
     monkeypatch.setattr(db, "prune_pending_logins", _noop)
+    # Scenarios DAOs. By default the stub list is empty; tests that
+    # need scenarios populate _SCENARIO_STUB.scenarios at fixture setup
+    # time so /api/scenarios returns realistic data.
+    async def _count_scenarios(): return 99  # pretend already seeded
+    async def _list_scenarios(*, include_inactive=False):
+        return list(_SCENARIO_STUB.get("scenarios") or [])
+    async def _get_scenario(sid):
+        for s in (_SCENARIO_STUB.get("scenarios") or []):
+            if s["id"] == sid:
+                return s
+        return None
+    monkeypatch.setattr(db, "list_scenarios", _list_scenarios)
+    monkeypatch.setattr(db, "count_scenarios", _count_scenarios)
+    monkeypatch.setattr(db, "get_scenario", _get_scenario)
+    monkeypatch.setattr(db, "upsert_scenario", _noop)
+    monkeypatch.setattr(db, "set_scenario_active", _noop)
+
+
+# Module-level dict the _stub_db fixture's list_scenarios stub reads from.
+# Tests that need a scenario in /api/scenarios populate this in their
+# `client` fixture so each test owns its own scenario set.
+_SCENARIO_STUB: dict = {"scenarios": []}
 
 
 @pytest.fixture
@@ -46,6 +68,13 @@ def client(tmp_path):
         "id: sA\ntitle: A\ncategory: c\ndifficulty: simple\n"
         "prompt: x\nexpected_operations: []\nsuccess_criteria:\n  must_contain: []\n"
     )
+    # Mirror the YAML into the in-memory stub so /api/scenarios returns it.
+    _SCENARIO_STUB["scenarios"] = [{
+        "id": "sA", "title": "A", "category": "c", "difficulty": "simple",
+        "prompt": "x", "expected_operations": [],
+        "success_criteria_json": {"must_contain": []}, "notes": "",
+        "is_active": True, "created_at": None, "updated_at": None,
+    }]
     mcp_cfg = tmp_path / "sf-mcp.json"; mcp_cfg.write_text("{}")
     reports = tmp_path / "reports"; reports.mkdir()
 

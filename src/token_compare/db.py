@@ -66,6 +66,25 @@ CREATE TABLE IF NOT EXISTS pending_logins (
 );
 CREATE INDEX IF NOT EXISTS pending_logins_created_idx
   ON pending_logins (created_at);
+
+-- Scenarios in DB so the admin UI can edit them. Seeded from
+-- scenarios/*.yaml on first dyno startup; after that the DB is the
+-- source of truth. Soft-delete via is_active=false so historical
+-- reports referencing a removed scenario can still resolve title etc.
+CREATE TABLE IF NOT EXISTS scenarios (
+  id                    TEXT PRIMARY KEY,
+  title                 TEXT NOT NULL,
+  category              TEXT NOT NULL,
+  difficulty            TEXT NOT NULL,
+  prompt                TEXT NOT NULL,
+  expected_operations   JSONB NOT NULL DEFAULT '[]'::jsonb,
+  success_criteria_json JSONB NOT NULL DEFAULT '{"must_contain": []}'::jsonb,
+  notes                 TEXT NOT NULL DEFAULT '',
+  is_active             BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS scenarios_is_active_idx ON scenarios (is_active);
 """
 
 
@@ -278,3 +297,100 @@ async def prune_pending_logins() -> int:
         return int(result.split()[-1])
     except (ValueError, IndexError):
         return 0
+
+
+# ---- Scenarios ----
+
+def _scenario_row_to_dict(row) -> dict:
+    """Normalize a scenarios row so JSONB columns come back as Python
+    dicts/lists no matter which asyncpg codec path was used."""
+    d = dict(row)
+    for k in ("expected_operations", "success_criteria_json"):
+        v = d.get(k)
+        if isinstance(v, str):
+            d[k] = json.loads(v)
+    return d
+
+
+async def list_scenarios(*, include_inactive: bool = False) -> list[dict]:
+    pool = await connect()
+    where = "" if include_inactive else "WHERE is_active = TRUE "
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT id, title, category, difficulty, prompt, expected_operations, "
+            "success_criteria_json, notes, is_active, created_at, updated_at "
+            f"FROM scenarios {where}ORDER BY id"
+        )
+    return [_scenario_row_to_dict(r) for r in rows]
+
+
+async def get_scenario(scenario_id: str) -> Optional[dict]:
+    pool = await connect()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id, title, category, difficulty, prompt, expected_operations, "
+            "success_criteria_json, notes, is_active, created_at, updated_at "
+            "FROM scenarios WHERE id = $1",
+            scenario_id,
+        )
+    return _scenario_row_to_dict(row) if row else None
+
+
+async def upsert_scenario(
+    *,
+    id: str,
+    title: str,
+    category: str,
+    difficulty: str,
+    prompt: str,
+    expected_operations: list[str] | None = None,
+    success_criteria: dict | None = None,
+    notes: str = "",
+    is_active: bool = True,
+) -> None:
+    """Insert a new scenario or update an existing one (admin endpoints
+    use this for both create and edit). updated_at refreshes on every
+    write so the admin UI can show 'last edited' timestamps."""
+    pool = await connect()
+    expected_operations = expected_operations or []
+    success_criteria = success_criteria or {"must_contain": []}
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO scenarios "
+            "(id, title, category, difficulty, prompt, expected_operations, "
+            " success_criteria_json, notes, is_active) "
+            "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) "
+            "ON CONFLICT (id) DO UPDATE SET "
+            "  title=EXCLUDED.title, category=EXCLUDED.category, "
+            "  difficulty=EXCLUDED.difficulty, prompt=EXCLUDED.prompt, "
+            "  expected_operations=EXCLUDED.expected_operations, "
+            "  success_criteria_json=EXCLUDED.success_criteria_json, "
+            "  notes=EXCLUDED.notes, is_active=EXCLUDED.is_active, "
+            "  updated_at=now()",
+            id, title, category, difficulty, prompt,
+            json.dumps(expected_operations),
+            json.dumps(success_criteria),
+            notes, is_active,
+        )
+
+
+async def set_scenario_active(scenario_id: str, *, is_active: bool) -> bool:
+    """Soft-delete (is_active=False) or restore. Returns True if a row
+    was actually modified, False if the id didn't exist."""
+    pool = await connect()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "UPDATE scenarios SET is_active=$2, updated_at=now() WHERE id=$1",
+            scenario_id, is_active,
+        )
+    try:
+        return int(result.split()[-1]) > 0
+    except (ValueError, IndexError):
+        return False
+
+
+async def count_scenarios() -> int:
+    pool = await connect()
+    async with pool.acquire() as conn:
+        n = await conn.fetchval("SELECT COUNT(*) FROM scenarios")
+    return int(n or 0)
