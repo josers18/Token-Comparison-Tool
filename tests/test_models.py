@@ -171,3 +171,44 @@ def test_outcomes_per_path():
     assert out["tool_auth_error"] == 1
     # Empty mcp_runs produces all-zero outcomes dict.
     assert all(v == 0 for v in sr.mcp_outcomes.values())
+
+
+def test_scenario_result_runs_by_model_round_trip():
+    from token_compare.models import (
+        ScenarioResult, ModelRunBucket, RunResult, PathName,
+    )
+    r_native = RunResult(
+        path=PathName.NATIVE, input_tokens=10, output_tokens=5,
+        cache_read_input_tokens=0, total_cost_usd=0.01, num_turns=1,
+        duration_ms=100, tool_calls=[], succeeded=True, raw_json={},
+    )
+    r_mcp = RunResult(
+        path=PathName.MCP, input_tokens=20, output_tokens=10,
+        cache_read_input_tokens=0, total_cost_usd=0.02, num_turns=1,
+        duration_ms=100, tool_calls=[], succeeded=True, raw_json={},
+    )
+    sr = ScenarioResult(
+        scenario_id="s1",
+        native_runs=[r_native], mcp_runs=[r_mcp],
+        runs_by_model={"sonnet": ModelRunBucket(
+            native_runs=[r_native], mcp_runs=[r_mcp]
+        )},
+    )
+    dumped = sr.model_dump()
+    assert dumped["runs_by_model"]["sonnet"]["native_runs"][0]["input_tokens"] == 10
+    rebuilt = ScenarioResult.model_validate(dumped)
+    assert rebuilt.runs_by_model["sonnet"].native_runs[0].input_tokens == 10
+
+
+def test_benchmark_result_models_field():
+    from token_compare.models import BenchmarkResult
+    payload = {
+        "started_at": "x", "finished_at": "y", "operator": "me",
+        "model": "claude-4-5-sonnet",
+        "models": ["claude-4-5-sonnet"],
+        "org_name": "o", "tool_commit": "abc",
+        "runs_per_path": 1, "scenarios": [],
+    }
+    b = BenchmarkResult.model_validate(payload)
+    assert b.models == ["claude-4-5-sonnet"]
+    assert b.model == "claude-4-5-sonnet"

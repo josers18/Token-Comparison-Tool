@@ -78,10 +78,16 @@ def _stddev_float(values: list[float]) -> float:
     return float(pstdev(values))
 
 
+class ModelRunBucket(BaseModel):
+    native_runs: list[RunResult] = Field(default_factory=list)
+    mcp_runs: list[RunResult] = Field(default_factory=list)
+
+
 class ScenarioResult(BaseModel):
     scenario_id: str
     native_runs: list[RunResult]
     mcp_runs: list[RunResult]
+    runs_by_model: dict[str, ModelRunBucket] = Field(default_factory=dict)
 
     @property
     def native_successful(self) -> list[RunResult]:
@@ -281,6 +287,7 @@ class BenchmarkResult(BaseModel):
     finished_at: str
     operator: str
     model: str
+    models: list[str] = Field(default_factory=list)
     org_name: str
     tool_commit: str
     runs_per_path: int
