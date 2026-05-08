@@ -11,6 +11,7 @@ from token_compare.sf_auth import (
     OAuthCredentials, AccessToken, SfAuthError,
     _generate_pkce, _build_authorize_url,
     clear_cached_token, fetch_access_token, load_credentials_from_env,
+    run_interactive_login,
     CACHE_PATH, SF_OAUTH_SCOPES,
 )
 
@@ -179,3 +180,35 @@ def test_complete_pending_login_unknown_state_raises():
     from token_compare.sf_auth import SfAuthError, complete_pending_login
     with pytest.raises(SfAuthError, match="no pending login"):
         complete_pending_login("UNKNOWN_STATE", "CODE")
+
+
+def test_interactive_login_accepts_heroku_redirect(monkeypatch):
+    creds = OAuthCredentials(
+        client_id="cid", client_secret="csec",
+        login_url="https://login.salesforce.com",
+        redirect_uri="https://token-comparison-tool-cb60c8f1dcc3.herokuapp.com/callback",
+    )
+    # We won't actually open a browser; verify only that the host check passes.
+    # Stub _register_pending so the function gets past the guard.
+    called = {}
+    def fake_register(state, c, v):
+        called["ok"] = True
+        class _P:
+            event = type("E", (), {"wait": lambda self, timeout=None: True})()
+            error = "stubbed"
+            token = None
+        return _P()
+    monkeypatch.setattr("token_compare.sf_auth._register_pending", fake_register)
+    with pytest.raises(SfAuthError, match="stubbed"):
+        run_interactive_login(creds, open_browser=False, timeout_s=0.1)
+    assert called.get("ok") is True
+
+
+def test_interactive_login_rejects_random_https(monkeypatch):
+    creds = OAuthCredentials(
+        client_id="cid", client_secret="csec",
+        login_url="https://login.salesforce.com",
+        redirect_uri="https://example.com/callback",
+    )
+    with pytest.raises(SfAuthError, match="not localhost or"):
+        run_interactive_login(creds, open_browser=False, timeout_s=0.1)

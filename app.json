@@ -1,0 +1,17 @@
+{
+  "name": "Token Comparison Tool",
+  "description": "Native vs MCP token-cost benchmark for Salesforce on Heroku Inference.",
+  "addons": [
+    "heroku-postgresql:essential-0",
+    {"plan": "heroku-inference:claude-4-5-haiku",  "as": "HEROKU_INFERENCE_TEAL"},
+    {"plan": "heroku-inference:claude-4-5-sonnet", "as": "INFERENCE"},
+    {"plan": "heroku-inference:claude-opus-4-5",   "as": "HEROKU_INFERENCE_COBALT"}
+  ],
+  "env": {
+    "SF_CLIENT_ID":     {"description": "Salesforce ECA client id"},
+    "SF_CLIENT_SECRET": {"description": "Salesforce ECA client secret"},
+    "SF_LOGIN_URL":     {"value": "https://login.salesforce.com"},
+    "SF_REDIRECT_URI":  {"description": "Set to https://<heroku-app-host>/callback after first deploy"},
+    "SESSION_SECRET":   {"generator": "secret"}
+  }
+}

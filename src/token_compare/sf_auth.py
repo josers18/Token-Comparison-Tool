@@ -317,10 +317,13 @@ def run_interactive_login(
     the browser, and blocks waiting for the route to signal completion.
     """
     redirect = urllib.parse.urlparse(creds.redirect_uri)
-    if redirect.hostname not in {"localhost", "127.0.0.1"}:
+    host = (redirect.hostname or "").lower()
+    is_local = host in {"localhost", "127.0.0.1"}
+    is_heroku = host.endswith(".herokuapp.com") and redirect.scheme == "https"
+    if not (is_local or is_heroku):
         raise SfAuthError(
-            f"redirect_uri {creds.redirect_uri} is not localhost; refusing to "
-            "run interactive login (callback cannot be served)."
+            f"redirect_uri {creds.redirect_uri} is not localhost or *.herokuapp.com; "
+            "refusing to run interactive login (callback cannot be served)."
         )
 
     verifier, challenge = _generate_pkce()

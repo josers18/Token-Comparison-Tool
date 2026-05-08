@@ -34,6 +34,7 @@ function el(tag, opts = {}, ...children) {
 async function init() {
   await loadPreflight();
   await loadScenarios();
+  await loadModels();
   renderSetup();
   $("run-btn").addEventListener("click", startRun);
   $("run-again").addEventListener("click", () => location.reload());
@@ -168,6 +169,27 @@ async function loadScenarios() {
   buildStepper();
 }
 
+async function loadModels() {
+  const sel = document.getElementById("model-select");
+  if (!sel) return;
+  try {
+    const r = await fetch("/api/models");
+    const { models } = await r.json();
+    sel.replaceChildren();
+    for (const m of (models || [])) {
+      const o = document.createElement("option");
+      o.value = m;
+      o.textContent = m;
+      sel.appendChild(o);
+    }
+  } catch (e) {
+    // /api/models is supposed to never fail — but if it does (e.g. no
+    // Inference addons attached on a dev install), leave the dropdown
+    // empty and let the user know via console.
+    console.warn("loadModels failed:", e);
+  }
+}
+
 // Connect the master checkbox to the per-row checkboxes:
 //  - Click master → toggles all rows to match
 //  - Click a row → updates master to "all checked", "none checked", or
@@ -283,7 +305,8 @@ async function startRun() {
     .map((i) => i.dataset.sid);
   if (checked.length === 0) return;
   state.runsPerPath = parseInt($("runs-per-path").value, 10);
-  state.model = $("model").value;
+  const modelEl = document.getElementById("model-select");
+  state.model = modelEl ? modelEl.value : "claude-4-5-sonnet";
   state.maxTurns = parseInt($("max-turns").value, 10);
   for (const s of state.scenarios) {
     state.scenarioResults[s.id] = { native: [], mcp: [] };
