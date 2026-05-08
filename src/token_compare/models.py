@@ -78,6 +78,24 @@ def _stddev_float(values: list[float]) -> float:
     return float(pstdev(values))
 
 
+def _normalize_to_cube(payload: dict) -> dict:
+    """In-place-safe shim: ensure `models` and per-scenario `runs_by_model`
+    fields are populated, even for reports written before Tier B. Legacy
+    reports get models=[model] and runs_by_model={model: {native_runs, mcp_runs}}."""
+    primary = payload.get("model")
+    if "models" not in payload or not payload.get("models"):
+        payload["models"] = [primary] if primary else []
+    for sr in payload.get("scenarios", []):
+        if not sr.get("runs_by_model"):
+            sr["runs_by_model"] = {
+                primary: {
+                    "native_runs": sr.get("native_runs", []),
+                    "mcp_runs": sr.get("mcp_runs", []),
+                }
+            } if primary else {}
+    return payload
+
+
 class ModelRunBucket(BaseModel):
     native_runs: list[RunResult] = Field(default_factory=list)
     mcp_runs: list[RunResult] = Field(default_factory=list)

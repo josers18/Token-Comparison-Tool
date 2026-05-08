@@ -212,3 +212,46 @@ def test_benchmark_result_models_field():
     b = BenchmarkResult.model_validate(payload)
     assert b.models == ["claude-4-5-sonnet"]
     assert b.model == "claude-4-5-sonnet"
+
+
+def test_normalize_to_cube_legacy_payload():
+    from token_compare.models import _normalize_to_cube
+    legacy = {
+        "started_at": "x", "finished_at": "y", "operator": "me",
+        "model": "claude-4-5-sonnet", "org_name": "o",
+        "tool_commit": "abc", "runs_per_path": 1,
+        "scenarios": [{
+            "scenario_id": "s1",
+            "native_runs": [{"path": "native", "input_tokens": 1,
+                              "output_tokens": 1, "cache_read_input_tokens": 0,
+                              "total_cost_usd": 0.01, "num_turns": 1,
+                              "duration_ms": 1, "tool_calls": [],
+                              "succeeded": True, "raw_json": {}}],
+            "mcp_runs": [],
+        }],
+    }
+    out = _normalize_to_cube(legacy)
+    assert out["models"] == ["claude-4-5-sonnet"]
+    sr = out["scenarios"][0]
+    assert "claude-4-5-sonnet" in sr["runs_by_model"]
+    assert len(sr["runs_by_model"]["claude-4-5-sonnet"]["native_runs"]) == 1
+    assert sr["runs_by_model"]["claude-4-5-sonnet"]["mcp_runs"] == []
+
+
+def test_normalize_to_cube_idempotent():
+    """If payload already has models + runs_by_model, leave it alone."""
+    from token_compare.models import _normalize_to_cube
+    cube = {
+        "model": "sonnet", "models": ["sonnet", "opus"],
+        "scenarios": [{
+            "scenario_id": "s1",
+            "native_runs": [], "mcp_runs": [],
+            "runs_by_model": {
+                "sonnet": {"native_runs": [], "mcp_runs": []},
+                "opus": {"native_runs": [], "mcp_runs": []},
+            },
+        }],
+    }
+    out = _normalize_to_cube(cube)
+    assert out["models"] == ["sonnet", "opus"]
+    assert set(out["scenarios"][0]["runs_by_model"].keys()) == {"sonnet", "opus"}
