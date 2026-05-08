@@ -65,7 +65,7 @@ def test_authorize_url_contains_required_params():
     assert "code_challenge=CHAL" in url
     assert "code_challenge_method=S256" in url
     assert "redirect_uri=http%3A%2F%2Flocalhost%3A8000%2Fcallback" in url
-    assert "scope=mcp_api+cdp_api+refresh_token" in url
+    assert "scope=api+mcp_api+cdp_api+refresh_token" in url
     assert "state=STATE" in url
 
 

@@ -17,10 +17,15 @@ from pydantic import BaseModel
 
 
 # Salesforce ECA scope ceiling is ~5; keep this string short.
-# mcp_api        — required for Platform MCP gateway acceptance.
+# api            — required for direct REST API calls (the Native path's
+#                  /services/data/vXX/query endpoint). Without this scope
+#                  the REST API returns 401 INVALID_SCOPES even with a
+#                  valid bearer token.
+# mcp_api        — required for Platform MCP gateway acceptance (the MCP
+#                  path's /platform/mcp/v1/... endpoints).
 # cdp_api        — blanket Data Cloud access (covers cdp_query_api, cdp_profile_api).
 # refresh_token  — needed to mint refreshable access tokens.
-SF_OAUTH_SCOPES = "mcp_api cdp_api refresh_token"
+SF_OAUTH_SCOPES = "api mcp_api cdp_api refresh_token"
 
 # ECA-registered redirect URI. Must match exactly.
 DEFAULT_REDIRECT_URI = "http://localhost:8000/callback"
