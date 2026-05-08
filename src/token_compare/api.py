@@ -69,8 +69,12 @@ class RunRequest(BaseModel):
     scenario_ids: list[str]
     runs_per_path: int = 3
     model: str = "claude-4-5-sonnet"
-    operator: str
-    org_name: str
+    # Operator + org_name are descriptive labels stored on the report row
+    # only — no semantic dependence. Default to placeholders so a
+    # request that forgets to include them doesn't 422; the SPA sends
+    # real values but we shouldn't punish a stale frontend that doesn't.
+    operator: str = "(unknown)"
+    org_name: str = "(unknown)"
     max_turns: int = 15
     timeout_s: int = 300
 
