@@ -378,6 +378,43 @@ def create_app(config: AppConfig) -> FastAPI:
     # SF token in its sessions row) is allowed to call admin endpoints.
     # Same gate as the rest of the app — login = full access.
 
+    async def _get_fresh_sf_token(sid: str) -> Optional[dict]:
+        """Look up the SF token for `sid`, refresh it if expired, write
+        the refreshed token back to the session row, and return the dict.
+
+        Returns None if no token exists or refresh fails. Callers that
+        need the token (run, freeform, MCP gateway init) all go through
+        this helper so a stale token doesn't reach the runner — the MCP
+        gateway is stricter than the Data API and 401s on expired tokens
+        even when /services/data/vXX would still accept them."""
+        from token_compare import db
+        from token_compare.sf_auth import (
+            AccessToken, SfAuthError, _refresh_access_token,
+            load_credentials_from_env,
+        )
+        token = await db.get_sf_token(sid)
+        if not token:
+            return None
+        try:
+            access = AccessToken.model_validate(token)
+        except Exception:
+            # Old/garbled session row — treat as missing.
+            return None
+        if access.is_fresh:
+            return token
+        if not access.refresh_token:
+            return None  # nothing to refresh with → caller must re-auth
+        creds = load_credentials_from_env()
+        if creds is None:
+            return None
+        try:
+            refreshed = _refresh_access_token(creds, access.refresh_token)
+        except SfAuthError:
+            return None
+        refreshed_dict = refreshed.model_dump()
+        await db.put_sf_token(sid, refreshed_dict)
+        return refreshed_dict
+
     async def _require_sf_session(request: Request) -> Optional[JSONResponse]:
         """Returns None if the request carries a logged-in SF session
         cookie; otherwise an error JSONResponse the caller should return
@@ -596,7 +633,11 @@ def create_app(config: AppConfig) -> FastAPI:
     async def run(req: RunRequest, request: Request) -> Response:
         from token_compare import db
         sid, cookie = await _get_or_create_sid_with_cookie(request)
-        sf_token = await db.get_sf_token(sid)
+        # Refresh the SF token if it's expired before handing it to the
+        # runner — the MCP gateway 401s on stale tokens that the Data
+        # API would still accept, and that asymmetry caused the
+        # mcp_init_failed errors users were seeing 13+ hours after login.
+        sf_token = await _get_fresh_sf_token(sid)
         if not sf_token:
             resp = JSONResponse(
                 {"error": "Salesforce login required"}, status_code=401,
@@ -640,7 +681,7 @@ def create_app(config: AppConfig) -> FastAPI:
     async def run_freeform(req: FreeformRunRequest, request: Request) -> Response:
         from token_compare import db
         sid, cookie = await _get_or_create_sid_with_cookie(request)
-        sf_token = await db.get_sf_token(sid)
+        sf_token = await _get_fresh_sf_token(sid)
         if not sf_token:
             resp = JSONResponse(
                 {"error": "Salesforce login required"}, status_code=401,

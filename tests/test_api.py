@@ -113,7 +113,7 @@ def test_post_run_streams_events(client, monkeypatch):
 
     # Provide a mock SF token for this test
     async def _mock_get_sf_token(sid):
-        return {"access_token": "T", "instance_url": "https://x"}
+        return {"access_token": "T", "instance_url": "https://x", "issued_at": 0, "expires_at": 9999999999}
     monkeypatch.setattr(db, "get_sf_token", _mock_get_sf_token)
 
     def fake_run_once(scenario, path, **kwargs):
@@ -141,7 +141,7 @@ def test_post_run_emits_error_and_closes_on_failure(client, monkeypatch):
 
     # Provide a mock SF token for this test
     async def _mock_get_sf_token(sid):
-        return {"access_token": "T", "instance_url": "https://x"}
+        return {"access_token": "T", "instance_url": "https://x", "issued_at": 0, "expires_at": 9999999999}
     monkeypatch.setattr(db, "get_sf_token", _mock_get_sf_token)
 
     def boom(scenario, path, **kwargs):
@@ -214,7 +214,7 @@ def test_run_status_reflects_active_benchmark(tmp_path, monkeypatch):
 
     # Provide a mock SF token
     async def _mock_get_sf_token(sid):
-        return {"access_token": "T", "instance_url": "https://x"}
+        return {"access_token": "T", "instance_url": "https://x", "issued_at": 0, "expires_at": 9999999999}
     monkeypatch.setattr(db, "get_sf_token", _mock_get_sf_token)
 
     scen = tmp_path / "scenarios"; scen.mkdir()
@@ -268,7 +268,7 @@ def test_scenario_trace_returns_comparison(tmp_path, monkeypatch):
 
     # Provide a mock SF token
     async def _mock_get_sf_token(sid):
-        return {"access_token": "T", "instance_url": "https://x"}
+        return {"access_token": "T", "instance_url": "https://x", "issued_at": 0, "expires_at": 9999999999}
     monkeypatch.setattr(db, "get_sf_token", _mock_get_sf_token)
 
     scen = tmp_path / "scenarios"; scen.mkdir()
@@ -336,7 +336,7 @@ def test_summary_endpoint_returns_analysis(tmp_path, monkeypatch):
 
     # Provide a mock SF token
     async def _mock_get_sf_token(sid):
-        return {"access_token": "T", "instance_url": "https://x"}
+        return {"access_token": "T", "instance_url": "https://x", "issued_at": 0, "expires_at": 9999999999}
     monkeypatch.setattr(db, "get_sf_token", _mock_get_sf_token)
 
     scen = tmp_path / "scenarios"; scen.mkdir()
