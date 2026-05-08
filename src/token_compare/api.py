@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -24,6 +24,11 @@ from token_compare.report_loader import (
 )
 from token_compare.models import Scenario, SuccessCriteria
 from token_compare.scenarios import load_all
+
+
+# Maps OAuth `state` parameter back to the session id that initiated it,
+# so /callback can drop the SF token into the right sessions row.
+_state_to_sid: dict[str, str] = {}
 
 
 def _load_dotenv_if_present() -> None:
@@ -108,6 +113,38 @@ def _prune_reports(reports_dir: Path, retain: int) -> None:
 def create_app(config: AppConfig) -> FastAPI:
     app = FastAPI(title="Token Comparison Tool")
 
+    @app.on_event("startup")
+    async def _startup() -> None:
+        from token_compare import db
+        await db.connect()
+        await db.migrate()
+
+    @app.on_event("shutdown")
+    async def _shutdown() -> None:
+        from token_compare import db
+        await db.close()
+
+    async def _get_or_create_sid_with_cookie(request: Request) -> tuple[str, Optional[tuple[str, str]]]:
+        """Return (session_id, cookie_to_set_or_None).
+
+        If the request already carries a valid signed cookie, returns
+        (verified_sid, None). Otherwise creates a new session row and
+        returns the new sid plus the (cookie_name, signed_value) the
+        caller should attach to their response.
+        """
+        from token_compare import db
+        from token_compare.sessions import (
+            COOKIE_NAME, sign_session_id, verify_session_id, BadSignature,
+        )
+        signed = request.cookies.get(COOKIE_NAME)
+        if signed:
+            try:
+                return verify_session_id(signed), None
+            except BadSignature:
+                pass
+        sid = await db.create_session()
+        return sid, (COOKIE_NAME, sign_session_id(sid))
+
     # Track in-memory benchmark state for polling fallback
     _current_run: dict = {"active": False, "events": [], "started_at": None, "report_path": None}
 
@@ -119,10 +156,16 @@ def create_app(config: AppConfig) -> FastAPI:
     def list_scenarios() -> list[dict]:
         return [s.model_dump() for s in load_all(config.scenarios_dir)]
 
+    @app.get("/api/models")
+    def list_models() -> dict:
+        from token_compare.inference_client import discover_models
+        return {"models": [m.model_id for m in discover_models()]}
+
     def _start_benchmark_stream(
         picked_scenarios: list[Scenario],
         options: BenchmarkOptions,
         *,
+        report_id: str,
         freeform_scenario: Optional[Scenario] = None,
     ) -> StreamingResponse:
         """Run a benchmark over `picked_scenarios` and stream progress as SSE.
@@ -152,22 +195,35 @@ def create_app(config: AppConfig) -> FastAPI:
         async def runner_task():
             try:
                 loop = asyncio.get_running_loop()
+                from token_compare import db as _db
+
+                # Wrap on_progress to also INSERT each run row as it completes.
+                original_on_progress = on_progress
+
+                def db_on_progress(e):
+                    original_on_progress(e)
+                    if e.kind == "run_complete" and e.run_result is not None:
+                        # Best-effort fire-and-forget insert. We schedule it on
+                        # the loop because run_benchmark is in an executor.
+                        asyncio.run_coroutine_threadsafe(
+                            _db.insert_run(
+                                report_id=report_id,
+                                scenario_id=e.scenario_id,
+                                path=e.path.value,
+                                run_index=e.run_index,
+                                result=e.run_result.model_dump(),
+                            ),
+                            loop,
+                        )
+
                 result = await loop.run_in_executor(
-                    None, lambda: run_benchmark(picked_scenarios, options, on_progress),
+                    None, lambda: run_benchmark(picked_scenarios, options, db_on_progress),
                 )
-                config.reports_dir.mkdir(parents=True, exist_ok=True)
-                out = default_report_path(config.reports_dir, result.started_at)
-                write_markdown(result, out, scenarios=picked_scenarios)
-                # JSON sidecar — clean reload path for /api/reports/.../data
-                json_path = out.with_suffix(".json")
-                json_path.write_text(
-                    json.dumps(result.model_dump(), indent=2, default=str),
-                    encoding="utf-8",
-                )
-                _prune_reports(config.reports_dir, config.reports_retain)
+
+                await _db.finalize_report(report_id, payload=result.model_dump())
                 _current_run["result_data"] = result.model_dump()
-                _current_run["report_path"] = str(out)
-                queue.put_nowait({"kind": "report_written", "path": str(out)})
+                _current_run["report_path"] = report_id
+                queue.put_nowait({"kind": "report_written", "report_id": report_id})
             except Exception as e:
                 queue.put_nowait({"kind": "error", "message": str(e)})
             finally:
@@ -177,7 +233,11 @@ def create_app(config: AppConfig) -> FastAPI:
         async def event_stream():
             task = asyncio.create_task(runner_task())
             while True:
-                event = await queue.get()
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
                 if event is None:
                     break
                 yield f"data: {json.dumps(event)}\n\n"
@@ -186,24 +246,58 @@ def create_app(config: AppConfig) -> FastAPI:
         return StreamingResponse(event_stream(), media_type="text/event-stream")
 
     @app.post("/api/run")
-    async def run(req: RunRequest) -> StreamingResponse:
+    async def run(req: RunRequest, request: Request) -> Response:
+        from token_compare import db
+        sid, cookie = await _get_or_create_sid_with_cookie(request)
+        sf_token = await db.get_sf_token(sid)
+        if not sf_token:
+            resp = JSONResponse(
+                {"error": "Salesforce login required"}, status_code=401,
+            )
+            if cookie:
+                resp.set_cookie(cookie[0], cookie[1], httponly=True,
+                                secure=True, samesite="lax",
+                                max_age=60 * 60 * 24 * 30)
+            return resp
+
         all_scenarios = load_all(config.scenarios_dir)
         picked = [s for s in all_scenarios if s.id in set(req.scenario_ids)]
         if not picked:
             picked = all_scenarios
 
-        # FIXME(task 10.1): plumb sf_token from sessions DB
+        report_id = await db.create_report(
+            model=req.model, operator=req.operator, org_name=req.org_name,
+        )
+
         options = BenchmarkOptions(
             model=req.model, max_turns=req.max_turns, timeout_s=req.timeout_s,
             runs_per_path=req.runs_per_path,
             mcp_template_path=config.mcp_config_path,
             operator=req.operator, org_name=req.org_name,
-            sf_token={"access_token": "STUB", "instance_url": "https://x"},
+            sf_token=sf_token,
         )
-        return _start_benchmark_stream(picked, options)
+        stream = _start_benchmark_stream(picked, options, report_id=report_id)
+        if cookie:
+            stream.set_cookie(cookie[0], cookie[1], httponly=True,
+                              secure=True, samesite="lax",
+                              max_age=60 * 60 * 24 * 30)
+        return stream
 
     @app.post("/api/run/freeform")
-    async def run_freeform(req: FreeformRunRequest) -> StreamingResponse:
+    async def run_freeform(req: FreeformRunRequest, request: Request) -> Response:
+        from token_compare import db
+        sid, cookie = await _get_or_create_sid_with_cookie(request)
+        sf_token = await db.get_sf_token(sid)
+        if not sf_token:
+            resp = JSONResponse(
+                {"error": "Salesforce login required"}, status_code=401,
+            )
+            if cookie:
+                resp.set_cookie(cookie[0], cookie[1], httponly=True,
+                                secure=True, samesite="lax",
+                                max_age=60 * 60 * 24 * 30)
+            return resp
+
         prompt = (req.prompt or "").strip()
         if not prompt:
             return JSONResponse({"error": "prompt is required"}, status_code=400)
@@ -211,10 +305,10 @@ def create_app(config: AppConfig) -> FastAPI:
         # Pattern: must start with "freeform_" and contain only safe chars,
         # so we can use it in URL paths and filenames without escaping.
         ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-        sid = (req.scenario_id or "").strip()
+        sid_param = (req.scenario_id or "").strip()
         import re as _re
-        if sid and _re.fullmatch(r"freeform_[A-Za-z0-9_\-]{1,64}", sid):
-            scenario_id = sid
+        if sid_param and _re.fullmatch(r"freeform_[A-Za-z0-9_\-]{1,64}", sid_param):
+            scenario_id = sid_param
         else:
             scenario_id = f"freeform_{ts}"
         scenario = Scenario(
@@ -225,17 +319,26 @@ def create_app(config: AppConfig) -> FastAPI:
             prompt=prompt,
             success_criteria=SuccessCriteria(),
         )
-        # FIXME(task 10.1): plumb sf_token from sessions DB
+
+        report_id = await db.create_report(
+            model=req.model, operator=req.operator, org_name=req.org_name,
+        )
+
         options = BenchmarkOptions(
             model=req.model, max_turns=req.max_turns, timeout_s=req.timeout_s,
             runs_per_path=req.runs_per_path,
             mcp_template_path=config.mcp_config_path,
             operator=req.operator, org_name=req.org_name,
-            sf_token={"access_token": "STUB", "instance_url": "https://x"},
+            sf_token=sf_token,
         )
-        return _start_benchmark_stream(
-            [scenario], options, freeform_scenario=scenario,
+        stream = _start_benchmark_stream(
+            [scenario], options, report_id=report_id, freeform_scenario=scenario,
         )
+        if cookie:
+            stream.set_cookie(cookie[0], cookie[1], httponly=True,
+                              secure=True, samesite="lax",
+                              max_age=60 * 60 * 24 * 30)
+        return stream
 
     @app.get("/api/run/status")
     def run_status() -> dict:
@@ -289,29 +392,37 @@ def create_app(config: AppConfig) -> FastAPI:
         return analysis.model_dump()
 
     @app.get("/api/reports")
-    def list_saved_reports() -> dict:
-        """List benchmark reports on disk, newest first. Limited to 10."""
-        items = list_reports(config.reports_dir)[:10]
-        return {"reports": items}
+    async def list_saved_reports() -> dict:
+        from token_compare import db
+        from datetime import datetime
+        rows = await db.list_reports(limit=10)
+        reports = []
+        for r in rows:
+            started_at = r.get("started_at")
+            if isinstance(started_at, datetime):
+                started_at = started_at.isoformat()
+            elif isinstance(started_at, str):
+                pass  # already a string
+            else:
+                started_at = None
+            reports.append({
+                "name": r["id"],
+                "started_at": started_at,
+                "model": r.get("model"),
+                "operator": r.get("operator"),
+                "org_name": r.get("org_name"),
+            })
+        return {"reports": reports}
 
-    @app.get("/api/reports/{report_name}/data")
-    def load_saved_report(report_name: str) -> dict:
-        """Load a report by file name and hydrate it into _current_run so
-        the rest of the app behaves as if this were the most recent run."""
-        # Defense against path traversal: strip everything but the basename.
-        safe_name = Path(report_name).name
-        if not safe_name.startswith("benchmark-") or not safe_name.endswith(".md"):
-            return JSONResponse(
-                {"error": "report name must be benchmark-*.md"},
-                status_code=400,
-            )
-        md_path = config.reports_dir / safe_name
-        if not md_path.is_file():
-            return JSONResponse(
-                {"error": f"report {safe_name} not found"},
-                status_code=404,
-            )
-        return _hydrate_from_files(md_path)
+    @app.get("/api/reports/{report_id}/data")
+    async def load_saved_report(report_id: str):
+        from token_compare import db
+        rec = await db.get_report(report_id)
+        if not rec or not rec.get("payload_json"):
+            return JSONResponse({"error": "report not found"}, status_code=404)
+        from token_compare.models import BenchmarkResult
+        result = BenchmarkResult.model_validate(rec["payload_json"])
+        return _hydrate_from_result(result, source=report_id)
 
     @app.post("/api/reports/load")
     async def upload_and_load_report(file: UploadFile = File(...)) -> dict:
@@ -367,30 +478,44 @@ def create_app(config: AppConfig) -> FastAPI:
         }
 
     @app.post("/api/sf/login")
-    async def sf_login() -> dict:
+    async def sf_login(request: Request):
+        from token_compare import db
+        from token_compare.sessions import COOKIE_NAME, sign_session_id
         from token_compare.sf_auth import (
-            SfAuthError, load_credentials_from_env, run_interactive_login,
+            SfAuthError, load_credentials_from_env,
+            _generate_pkce, _build_authorize_url, _register_pending,
         )
+        import secrets as _secrets
+
         creds = load_credentials_from_env()
         if creds is None:
             return JSONResponse(
                 {"ok": False, "error": "SF_CLIENT_ID/SECRET/LOGIN_URL not set"},
                 status_code=400,
             )
-        try:
-            # This BLOCKS the event loop while waiting for the browser callback.
-            # Run in executor so uvicorn stays responsive to other requests.
-            import asyncio
-            loop = asyncio.get_running_loop()
-            tok = await loop.run_in_executor(None, lambda: run_interactive_login(creds))
-            return {"ok": True, "scope": tok.scope, "instance_url": tok.instance_url}
-        except SfAuthError as e:
-            return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+        verifier, challenge = _generate_pkce()
+        state = _secrets.token_urlsafe(24)
+        auth_url = _build_authorize_url(creds, state, challenge)
+        _register_pending(state, creds, verifier)
+
+        sid, _ = await _get_or_create_sid_with_cookie(request)
+        # Always re-set the cookie on login so the browser carries it
+        # through the OAuth round-trip even if it was missing.
+        _state_to_sid[state] = sid
+
+        resp = JSONResponse({"ok": True, "authorize_url": auth_url})
+        resp.set_cookie(
+            COOKIE_NAME, sign_session_id(sid),
+            httponly=True, secure=True, samesite="lax",
+            max_age=60 * 60 * 24 * 30,
+        )
+        return resp
 
     @app.post("/api/sf/logout")
-    def sf_logout() -> dict:
-        from token_compare.sf_auth import clear_cached_token
-        clear_cached_token()
+    async def sf_logout(request: Request) -> dict:
+        from token_compare import db
+        sid, _ = await _get_or_create_sid_with_cookie(request)
+        await db.delete_sf_token(sid)
         return {"ok": True}
 
     @app.get("/api/scenarios/{scenario_id}/trace")
@@ -429,13 +554,14 @@ def create_app(config: AppConfig) -> FastAPI:
         }
 
     @app.get("/callback")
-    def oauth_callback(
+    async def oauth_callback(
         code: Optional[str] = None,
         state: Optional[str] = None,
         error: Optional[str] = None,
         error_description: Optional[str] = None,
     ):
         import html
+        from token_compare import db
         from token_compare.sf_auth import (
             SfAuthError, complete_pending_login, complete_pending_login_error,
         )
@@ -452,6 +578,7 @@ h1{{font-size:24px}}p{{color:#747474}}</style></head><body>
             error_msg = f"{error}: {error_description or ''}"
             if state:
                 complete_pending_login_error(state, error_msg)
+                _state_to_sid.pop(state, None)
             return page(
                 "Salesforce login failed",
                 f"{error_msg}. You can close this tab.",
@@ -460,11 +587,17 @@ h1{{font-size:24px}}p{{color:#747474}}</style></head><body>
         if not code or not state:
             return page("Invalid callback", "Missing code or state.", 400)
         try:
-            complete_pending_login(state, code)
+            pending = complete_pending_login(state, code)
         except SfAuthError as e:
+            _state_to_sid.pop(state, None)
             return page("Salesforce login failed", str(e), 400)
         except Exception as e:
+            _state_to_sid.pop(state, None)
             return page("Salesforce login failed", f"unexpected error: {e}", 500)
+
+        sid = _state_to_sid.pop(state, None)
+        if sid and pending.token is not None:
+            await db.put_sf_token(sid, pending.token.model_dump())
         return page(
             "Salesforce login complete",
             "You can close this tab and return to the benchmark tool.",
