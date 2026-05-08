@@ -174,12 +174,16 @@ async def finalize_report(report_id: str, *, payload: dict) -> None:
         )
 
 
-async def list_reports(limit: int = 10) -> list[dict]:
+async def list_reports(limit: int = 10, *, finalized_only: bool = False) -> list[dict]:
+    """Most-recent reports, newest first. By default includes in-progress
+    runs (payload_json IS NULL); pass finalized_only=True for the SPA's
+    'load latest finished report' use case."""
     pool = await connect()
+    where = "WHERE payload_json IS NOT NULL " if finalized_only else ""
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             "SELECT id, started_at, finished_at, model, operator, org_name "
-            "FROM reports ORDER BY started_at DESC LIMIT $1",
+            f"FROM reports {where}ORDER BY started_at DESC LIMIT $1",
             limit,
         )
     return [dict(r) for r in rows]

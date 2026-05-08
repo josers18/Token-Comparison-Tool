@@ -453,11 +453,12 @@ def create_app(config: AppConfig) -> FastAPI:
     async def _ensure_latest_in_cache() -> Optional[dict]:
         """Return the latest run's BenchmarkResult dict, populating the
         in-memory cache from Postgres if a dyno restart wiped it.
+        Skips in-progress / aborted rows (payload_json IS NULL).
         None if no finalized report exists yet."""
         if _current_run.get("result_data"):
             return _current_run["result_data"]
         from token_compare import db
-        rows = await db.list_reports(limit=1)
+        rows = await db.list_reports(limit=1, finalized_only=True)
         if not rows:
             return None
         rec = await db.get_report(rows[0]["id"])
