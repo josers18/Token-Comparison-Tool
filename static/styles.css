@@ -2401,3 +2401,15 @@ body.printing #print-root { display: block; }
 ::-webkit-scrollbar-track { background: var(--paper-100); }
 ::-webkit-scrollbar-thumb { background: var(--paper-300); border-radius: 5px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--ink-faint); }
+
+/* ═════════════════════════════════════════════════════════════
+   Multi-model checkbox grid + per-model pill row (Tier B 2.5)
+   ═════════════════════════════════════════════════════════════ */
+.model-checkboxes { display: flex; flex-direction: column; gap: 4px; }
+.model-checkboxes label { display: flex; align-items: center; gap: 6px;
+  font: inherit; cursor: pointer; }
+.model-pills { display: flex; gap: 6px; margin: 8px 0 12px; flex-wrap: wrap; }
+.model-pill { background: var(--paper-card); border: 1px solid var(--rule);
+  padding: 4px 10px; border-radius: 999px; cursor: pointer;
+  font: 500 12px var(--mono); color: var(--ink); }
+.model-pill.active { background: var(--ink); color: var(--paper); }

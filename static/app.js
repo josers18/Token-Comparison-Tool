@@ -5,7 +5,10 @@ const state = {
   scenarios: [],
   runsPerPath: 3,
   model: "claude-4-5-sonnet",
-  scenarioResults: {},   // { [sid]: { native: RunResult[], mcp: RunResult[] } }
+  models: [],            // models[] selected for the current run
+  availableModels: [],   // populated by /api/models
+  activeModel: null,     // which model the scenario/summary view is currently rendering
+  scenarioResults: {},   // { [sid]: { [model]: { native: RunResult[], mcp: RunResult[] } } }
   charts: {},
   reportPath: null,
   active: "setup",
@@ -21,6 +24,25 @@ const state = {
   // views. Reset on a fresh benchmark or when navigating home.
   cameFromReports: false,
 };
+
+function defaultModel(models) {
+  if (!models || !models.length) return "";
+  for (const m of models) if (m.toLowerCase().includes("sonnet")) return m;
+  return models[0];
+}
+
+function selectedModels(containerId) {
+  return Array.from(document.querySelectorAll(
+    `#${containerId} input[type=checkbox]:checked`
+  )).map((i) => i.value);
+}
+
+function activeBucket(sid) {
+  // state.scenarioResults[sid] is now { [model]: { native: [], mcp: [] } }.
+  if (!state.scenarioResults[sid]) return { native: [], mcp: [] };
+  const m = state.activeModel || Object.keys(state.scenarioResults[sid])[0];
+  return state.scenarioResults[sid][m] || { native: [], mcp: [] };
+}
 
 let runStartTime = null;
 let pollIntervalId = null;
@@ -252,26 +274,35 @@ async function loadScenarios() {
 }
 
 async function loadModels() {
-  const sel = document.getElementById("model-select");
-  if (!sel) return;
   try {
     const r = await fetch("/api/models", { cache: "no-store" });
     const { models } = await r.json();
-    sel.replaceChildren();
-    for (const m of (models || [])) {
-      const o = document.createElement("option");
-      o.value = m;
-      o.textContent = m;
-      sel.appendChild(o);
-    }
-    // Default selection: sonnet if available, otherwise first option.
-    const preferred = (models || []).find(m => m === "claude-4-5-sonnet");
-    if (preferred) sel.value = preferred;
+    const list = models || [];
+    state.availableModels = list;
+    populateModelCheckboxes("model-select", list);
+    populateModelCheckboxes("freeform-model", list);
   } catch (e) {
     // /api/models is supposed to never fail — but if it does (e.g. no
-    // Inference addons attached on a dev install), leave the dropdown
-    // empty and let the user know via console.
+    // Inference addons attached on a dev install), leave the checkbox
+    // grids empty and let the user know via console.
     console.warn("loadModels failed:", e);
+  }
+}
+
+function populateModelCheckboxes(containerId, models) {
+  const c = document.getElementById(containerId);
+  if (!c) return;
+  c.replaceChildren();
+  const dflt = defaultModel(models);
+  for (const m of models) {
+    const lbl = document.createElement("label");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.value = m;
+    if (m === dflt) cb.checked = true;
+    lbl.appendChild(cb);
+    lbl.appendChild(document.createTextNode(" " + m));
+    c.appendChild(lbl);
   }
 }
 
@@ -396,11 +427,17 @@ async function startRun() {
     .filter(Boolean);
   if (checked.length === 0) return;
   state.runsPerPath = parseInt($("runs-per-path").value, 10) || 3;
-  const modelEl = document.getElementById("model-select");
-  state.model = (modelEl && modelEl.value) || "claude-4-5-sonnet";
+  const chosenModels = selectedModels("model-select");
+  if (chosenModels.length === 0) {
+    alert("Select at least one model.");
+    return;
+  }
+  state.models = chosenModels;
+  state.model = chosenModels[0];
+  state.activeModel = null;  // first run_complete (or hydrate) will pick this
   state.maxTurns = parseInt($("max-turns").value, 10) || 30;
   for (const s of state.scenarios) {
-    state.scenarioResults[s.id] = { native: [], mcp: [] };
+    state.scenarioResults[s.id] = {};  // model-keyed; empty until first run
   }
 
   runStartTime = Date.now();
@@ -418,7 +455,7 @@ async function startRun() {
   const body = {
     scenario_ids: checked,
     runs_per_path: state.runsPerPath,
-    model: state.model,
+    models: state.models,
     max_turns: state.maxTurns,
     operator: "local user",
     org_name: "(local org)",
@@ -433,7 +470,7 @@ async function startRun() {
     return;
   }
 
-  await consumeSseStream(res, checked.length * state.runsPerPath * 2);
+  await consumeSseStream(res, checked.length * state.runsPerPath * 2 * state.models.length);
 
   // After the SSE reader loop exits, always try to complete the run. This
   // covers cases where the server wrote the report but the SSE stream got
@@ -493,7 +530,14 @@ async function startFreeformRun() {
   // Freeform has its own controls so they're independent of the catalog's
   // dropdowns above.
   state.runsPerPath = parseInt($("freeform-runs").value, 10);
-  state.model = $("freeform-model").value;
+  const chosenModels = selectedModels("freeform-model");
+  if (chosenModels.length === 0) {
+    alert("Select at least one model.");
+    return;
+  }
+  state.models = chosenModels;
+  state.model = chosenModels[0];
+  state.activeModel = null;
   state.maxTurns = parseInt($("freeform-max-turns").value, 10);
 
   // Generate a deterministic id the backend will accept verbatim.
@@ -508,7 +552,7 @@ async function startFreeformRun() {
       id: sid, title, category: "freeform", difficulty: "medium", prompt,
     });
   }
-  state.scenarioResults[sid] = { native: [], mcp: [] };
+  state.scenarioResults[sid] = {};  // model-keyed
   buildStepper();
   setStepStatus(sid, "active");
 
@@ -530,7 +574,7 @@ async function startFreeformRun() {
     title,
     scenario_id: sid,
     runs_per_path: state.runsPerPath,
-    model: state.model,
+    models: state.models,
     max_turns: state.maxTurns,
     operator: "local user",
     org_name: "(local org)",
@@ -549,7 +593,7 @@ async function startFreeformRun() {
     return;
   }
 
-  await consumeSseStream(res, state.runsPerPath * 2);
+  await consumeSseStream(res, state.runsPerPath * 2 * state.models.length);
 
   // SSE stream closed; if the run finished cleanly the polling fallback
   // already hydrated state. As a belt-and-suspenders, hydrate now too.
@@ -855,18 +899,18 @@ function handleEvent(ev, onRunComplete) {
     case "run_complete": {
       // Dedupe across the SSE stream and the /api/run/status poller —
       // both feed handleEvent and would otherwise double-push the same
-      // run into the bucket. The natural id is (scenario, path, index).
-      const evKey = `${ev.scenario_id}|${ev.path}|${ev.run_index}`;
+      // run into the bucket. The natural id is (scenario, model, path, index).
+      const evKey = `${ev.scenario_id}|${ev.model || ""}|${ev.path}|${ev.run_index}`;
       state._seenRunKeys = state._seenRunKeys || new Set();
       if (state._seenRunKeys.has(evKey)) break;
       state._seenRunKeys.add(evKey);
-      // Lazy-init the bucket — for freeform runs the scenario isn't in
+      const m = ev.model || state.model;
+      // Lazy-init the cube — for freeform runs the scenario isn't in
       // state.scenarios until we hydrate it from the report.
-      if (!state.scenarioResults[ev.scenario_id]) {
-        state.scenarioResults[ev.scenario_id] = { native: [], mcp: [] };
-      }
-      const bucket = state.scenarioResults[ev.scenario_id];
-      bucket[ev.path].push(ev.run_result);
+      state.scenarioResults[ev.scenario_id] ??= {};
+      state.scenarioResults[ev.scenario_id][m] ??= { native: [], mcp: [] };
+      state.scenarioResults[ev.scenario_id][m][ev.path].push(ev.run_result);
+      if (!state.activeModel) state.activeModel = m;  // first run sets default
       onRunComplete();
       if (state.active === ev.scenario_id) renderScenario(ev.scenario_id);
       break;
@@ -950,9 +994,31 @@ function showScenario(sid) {
   renderScenario(sid);
 }
 
+function renderModelPills(containerId, models, activeModel, onSelect) {
+  const c = document.getElementById(containerId);
+  if (!c) return;
+  c.replaceChildren();
+  if (!models || models.length <= 1) { c.hidden = true; return; }
+  c.hidden = false;
+  for (const m of models) {
+    const b = el("button", {
+      className: "model-pill" + (m === activeModel ? " active" : ""),
+      text: m,
+      attrs: { type: "button" },
+    });
+    b.addEventListener("click", () => onSelect(m));
+    c.appendChild(b);
+  }
+}
+
 function renderScenario(sid) {
   const scenario = state.scenarios.find((s) => s.id === sid);
-  const bucket = state.scenarioResults[sid] || { native: [], mcp: [] };
+  const bucket = activeBucket(sid);
+  const models = Object.keys(state.scenarioResults[sid] || {});
+  renderModelPills("sv-model-pills", models, state.activeModel, (m) => {
+    state.activeModel = m;
+    renderScenario(sid);
+  });
 
   // Title: italicize the part after the colon/dash for editorial feel.
   const titleEl = $("sv-title");
@@ -1605,10 +1671,23 @@ function addFreeformScenarioToState(scenario) {
 function hydrateScenarioRunsFromData(data) {
   if (!data.scenarios) return;
   for (const sr of data.scenarios) {
-    state.scenarioResults[sr.scenario_id] = {
-      native: sr.native_runs || [],
-      mcp: sr.mcp_runs || [],
-    };
+    state.scenarioResults[sr.scenario_id] = {};
+    const rbm = sr.runs_by_model || {};
+    for (const [m, b] of Object.entries(rbm)) {
+      state.scenarioResults[sr.scenario_id][m] = {
+        native: b.native_runs || [], mcp: b.mcp_runs || [],
+      };
+    }
+    if (Object.keys(state.scenarioResults[sr.scenario_id]).length === 0) {
+      // legacy fallback: no runs_by_model, use flat lists
+      const m = (data.models && data.models[0]) || data.model || "unknown";
+      state.scenarioResults[sr.scenario_id][m] = {
+        native: sr.native_runs || [], mcp: sr.mcp_runs || [],
+      };
+    }
+  }
+  if (!state.activeModel) {
+    state.activeModel = defaultModel(data.models || [data.model].filter(Boolean));
   }
 }
 
@@ -1621,10 +1700,22 @@ async function hydrateSummaryFromBackend() {
     // Rebuild state.scenarioResults from the backend's BenchmarkResult dump
     state.scenarioResults = {};
     for (const sr of data.scenarios) {
-      state.scenarioResults[sr.scenario_id] = {
-        native: sr.native_runs || [],
-        mcp: sr.mcp_runs || [],
-      };
+      state.scenarioResults[sr.scenario_id] = {};
+      const rbm = sr.runs_by_model || {};
+      for (const [m, b] of Object.entries(rbm)) {
+        state.scenarioResults[sr.scenario_id][m] = {
+          native: b.native_runs || [], mcp: b.mcp_runs || [],
+        };
+      }
+      if (Object.keys(state.scenarioResults[sr.scenario_id]).length === 0) {
+        const m = (data.models && data.models[0]) || data.model || "unknown";
+        state.scenarioResults[sr.scenario_id][m] = {
+          native: sr.native_runs || [], mcp: sr.mcp_runs || [],
+        };
+      }
+    }
+    if (!state.activeModel) {
+      state.activeModel = defaultModel(data.models || [data.model].filter(Boolean));
     }
     $("progress-view").hidden = true;
     showSummary();
@@ -1660,6 +1751,16 @@ async function showSummary() {
     return;
   }
 
+  // Render per-model pill row above the headline.
+  const allModels = new Set();
+  for (const sid in state.scenarioResults) {
+    for (const m of Object.keys(state.scenarioResults[sid])) allModels.add(m);
+  }
+  renderModelPills("summary-model-pills", [...allModels], state.activeModel, (m) => {
+    state.activeModel = m;
+    showSummary();
+  });
+
   // Headline — render the multiplier number in mono and italicize savings phrase.
   renderHeadline($("summary-headline"), analysis.headline || "—");
 
@@ -1679,24 +1780,27 @@ async function showSummary() {
     tbody.appendChild(tr);
   };
 
-  // Calc avg input tokens + success rates from per-scenario bucket data
+  // Calc avg input tokens + success rates from per-scenario bucket data.
+  // Walk every model in the cube so totals reflect the full sweep.
   let nativeInputSum = 0, mcpInputSum = 0, nativeInputCount = 0, mcpInputCount = 0;
   let nativeSuccTotal = 0, nativeRunsTotal = 0, mcpSuccTotal = 0, mcpRunsTotal = 0;
   for (const sid in state.scenarioResults) {
-    const b = state.scenarioResults[sid];
-    for (const r of b.native || []) {
-      const tin = (r.input_tokens || 0) + (r.cache_read_input_tokens || 0) + (r.cache_creation_input_tokens || 0);
-      nativeInputSum += tin;
-      nativeInputCount += 1;
-      nativeRunsTotal += 1;
-      if (r.succeeded) nativeSuccTotal += 1;
-    }
-    for (const r of b.mcp || []) {
-      const tin = (r.input_tokens || 0) + (r.cache_read_input_tokens || 0) + (r.cache_creation_input_tokens || 0);
-      mcpInputSum += tin;
-      mcpInputCount += 1;
-      mcpRunsTotal += 1;
-      if (r.succeeded) mcpSuccTotal += 1;
+    for (const m in state.scenarioResults[sid]) {
+      const b = state.scenarioResults[sid][m];
+      for (const r of b.native || []) {
+        const tin = (r.input_tokens || 0) + (r.cache_read_input_tokens || 0) + (r.cache_creation_input_tokens || 0);
+        nativeInputSum += tin;
+        nativeInputCount += 1;
+        nativeRunsTotal += 1;
+        if (r.succeeded) nativeSuccTotal += 1;
+      }
+      for (const r of b.mcp || []) {
+        const tin = (r.input_tokens || 0) + (r.cache_read_input_tokens || 0) + (r.cache_creation_input_tokens || 0);
+        mcpInputSum += tin;
+        mcpInputCount += 1;
+        mcpRunsTotal += 1;
+        if (r.succeeded) mcpSuccTotal += 1;
+      }
     }
   }
   const avgNativeIn = nativeInputCount ? Math.round(nativeInputSum / nativeInputCount) : 0;
@@ -1973,7 +2077,7 @@ async function exportPdf() {
     // Render and capture each scenario in turn.
     for (const sc of state.scenarios) {
       // Skip scenarios with no run data (user may have unchecked them).
-      const bucket = state.scenarioResults[sc.id];
+      const bucket = activeBucket(sc.id);
       if (!bucket || (!bucket.native?.length && !bucket.mcp?.length)) continue;
 
       // Render this scenario into the live scenario-view, then clone it.

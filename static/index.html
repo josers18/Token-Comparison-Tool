@@ -82,8 +82,8 @@
             <option>5</option>
           </select>
         </label>
-        <label>Model
-          <select id="model-select"></select>
+        <label>Models
+          <div id="model-select" class="model-checkboxes"></div>
         </label>
         <label>Max turns
           <select id="max-turns">
@@ -123,12 +123,8 @@
               <option>5</option>
             </select>
           </label>
-          <label>Model
-            <select id="freeform-model">
-              <option>opus</option>
-              <option selected>sonnet</option>
-              <option>haiku</option>
-            </select>
+          <label>Models
+            <div id="freeform-model" class="model-checkboxes"></div>
           </label>
           <label>Max turns
             <select id="freeform-max-turns">
@@ -221,6 +217,8 @@
         <div class="verdict-text" id="sv-verdict-text">—</div>
         <div class="verdict-num" id="sv-verdict-num"></div>
       </div>
+
+      <div class="model-pills" id="sv-model-pills" hidden></div>
 
       <div class="dual">
         <div class="panel native">
@@ -326,6 +324,7 @@
     <section id="summary-view" class="card" hidden>
       <a class="back-link" href="#" id="summary-back-link" hidden>← Back to reports</a>
       <h2>Overall summary</h2>
+      <div class="model-pills" id="summary-model-pills" hidden></div>
       <div class="hero-summary" id="summary-headline">—</div>
       <p class="muted" id="summary-headline-caveat"></p>
 
