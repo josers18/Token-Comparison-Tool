@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS runs (
   scenario_id  TEXT NOT NULL,
   path         TEXT NOT NULL,
   run_index    INT NOT NULL,
+  model        TEXT,
   result_json  JSONB NOT NULL,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -85,6 +86,17 @@ CREATE TABLE IF NOT EXISTS scenarios (
   updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS scenarios_is_active_idx ON scenarios (is_active);
+
+-- Tier B: ensure runs.model exists and is NOT NULL on legacy DBs.
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS model TEXT;
+UPDATE runs r SET model = (SELECT model FROM reports WHERE id = r.report_id)
+  WHERE r.model IS NULL;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM runs WHERE model IS NULL) THEN
+    ALTER TABLE runs ALTER COLUMN model SET NOT NULL;
+  END IF;
+END $$;
 """
 
 
@@ -228,15 +240,15 @@ async def get_report(report_id: str) -> Optional[dict]:
 
 async def insert_run(
     *, report_id: str, scenario_id: str, path: str,
-    run_index: int, result: dict,
+    run_index: int, model: str, result: dict,
 ) -> str:
     rid = "run_" + secrets.token_hex(8)
     pool = await connect()
     async with pool.acquire() as conn:
         await conn.execute(
-            "INSERT INTO runs (id, report_id, scenario_id, path, run_index, result_json) "
-            "VALUES ($1,$2,$3,$4,$5,$6)",
-            rid, report_id, scenario_id, path, run_index, json.dumps(result),
+            "INSERT INTO runs (id, report_id, scenario_id, path, run_index, model, result_json) "
+            "VALUES ($1,$2,$3,$4,$5,$6,$7)",
+            rid, report_id, scenario_id, path, run_index, model, json.dumps(result),
         )
     return rid
 

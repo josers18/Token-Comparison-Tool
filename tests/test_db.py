@@ -61,3 +61,12 @@ async def test_report_round_trip(pool):
     assert any(r["id"] == rid for r in items)
     full = await db_mod.get_report(rid)
     assert full["payload_json"]["model"] == "claude-4-5-sonnet"
+
+
+def test_runs_table_has_model_column():
+    """Test that the SCHEMA constant declares a model column on runs."""
+    from token_compare.db import SCHEMA
+    # Tolerant against whitespace formatting:
+    assert " model " in SCHEMA  # the column must appear somewhere
+    # And the migration block must mention adding the column to runs.
+    assert "ALTER TABLE runs" in SCHEMA and "ADD COLUMN" in SCHEMA

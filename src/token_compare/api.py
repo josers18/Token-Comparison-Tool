@@ -588,6 +588,7 @@ def create_app(config: AppConfig) -> FastAPI:
                                 scenario_id=e.scenario_id,
                                 path=e.path.value,
                                 run_index=e.run_index,
+                                model=options.model,
                                 result=e.run_result.model_dump(),
                             ),
                             loop,
