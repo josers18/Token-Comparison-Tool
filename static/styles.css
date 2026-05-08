@@ -253,7 +253,7 @@ html, body {
 .landing-card {
   /* Reset <button> chrome. */
   appearance: none;
-  background: var(--paper);
+  background: var(--paper-card);
   border: 1px solid var(--hair-2);
   border-radius: var(--r-md, 12px);
   padding: 28px 26px 24px;
@@ -328,7 +328,7 @@ html, body {
   .kpi-strip { grid-template-columns: repeat(2, 1fr); }
 }
 .kpi {
-  background: var(--paper);
+  background: var(--paper-card);
   border: 1px solid var(--hair-2);
   border-radius: var(--r-md, 12px);
   padding: 18px 20px;
@@ -378,7 +378,7 @@ html, body {
   padding: 6px 10px;
   border: 1px solid var(--hair-2);
   border-radius: 6px;
-  background: var(--paper);
+  background: var(--paper-card);
   min-width: 140px;
 }
 .reports-filter-search input { min-width: 220px; }
@@ -436,7 +436,7 @@ html, body {
   padding: 6px 10px;
   border: 1px solid var(--hair-2);
   border-radius: 6px;
-  background: var(--paper);
+  background: var(--paper-card);
   cursor: pointer;
 }
 .reports-actions-btn:hover { border-color: var(--ink-mute); }
@@ -444,13 +444,17 @@ html, body {
   position: absolute;
   top: 100%;
   right: 12px;
-  background: var(--paper);
+  /* Solid white + heavier shadow + high z-index — popovers must stack
+     cleanly above the table, the kpi strip, and any text behind them. */
+  background: #ffffff;
   border: 1px solid var(--hair-2);
   border-radius: 8px;
-  box-shadow: 0 8px 24px -10px rgba(20, 20, 20, 0.25);
-  z-index: 10;
+  box-shadow: 0 12px 32px -8px rgba(20, 20, 20, 0.32),
+              0 2px 6px -2px rgba(20, 20, 20, 0.18);
+  z-index: 1000;
   min-width: 180px;
   padding: 6px 0;
+  margin-top: 4px;
 }
 .reports-actions-menu button,
 .reports-actions-menu a {

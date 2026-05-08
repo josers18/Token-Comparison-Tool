@@ -177,11 +177,6 @@
             <span>Search</span>
             <input type="text" id="reports-filter-search" placeholder="report id, operator, org…">
           </label>
-          <div class="reports-toolbar-spacer"></div>
-          <label class="reports-filter">
-            <span>Or upload a file</span>
-            <input type="file" id="report-upload" accept=".md,.json,application/json,text/markdown">
-          </label>
         </div>
 
         <table class="reports-table">
@@ -212,6 +207,7 @@
     </section>
 
     <section id="scenario-view" class="card" hidden>
+      <a class="back-link" href="#" id="scenario-back-link" hidden>← Back to reports</a>
       <div class="scenario-head">
         <p class="muted" id="sv-meta"></p>
         <h2 id="sv-title"></h2>
@@ -296,6 +292,7 @@
     </section>
 
     <section id="summary-view" class="card" hidden>
+      <a class="back-link" href="#" id="summary-back-link" hidden>← Back to reports</a>
       <h2>Overall summary</h2>
       <div class="hero-summary" id="summary-headline">—</div>
       <p class="muted" id="summary-headline-caveat"></p>

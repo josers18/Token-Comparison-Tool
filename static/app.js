@@ -16,6 +16,10 @@ const state = {
   reportsKpis: {},
   reportsSortKey: "started_at",
   reportsSortDir: "desc",
+  // True when the user opened the current report from the analytics
+  // table; controls the "← Back to reports" link in scenario/summary
+  // views. Reset on a fresh benchmark or when navigating home.
+  cameFromReports: false,
 };
 
 let runStartTime = null;
@@ -108,6 +112,17 @@ async function init() {
       goHome();
     });
   }
+  // Two "← Back to reports" links, one in scenario-view and one in
+  // summary-view. Both visible only when state.cameFromReports is true.
+  ["scenario-back-link", "summary-back-link"].forEach((id) => {
+    const link = $(id);
+    if (link) {
+      link.addEventListener("click", (e) => {
+        e.preventDefault();
+        goBackToReports();
+      });
+    }
+  });
   const pdfBtn = $("export-pdf");
   if (pdfBtn) pdfBtn.addEventListener("click", exportPdf);
   const sPdfBtn = $("scenario-export-pdf");
@@ -125,9 +140,9 @@ async function init() {
     ffBtn.addEventListener("click", startFreeformRun);
   }
 
-  // Reports & analytics — wire filters, sortable columns, file-upload
-  // import. The actual table is rendered by renderReportsTable() each
-  // time the data changes; this just attaches the event handlers.
+  // Reports & analytics — wire filters and sortable column clicks.
+  // The actual table is rendered by renderReportsTable() each time the
+  // data changes; this just attaches the event handlers.
   if ($("reports-filter-kind")) {
     $("reports-filter-kind").addEventListener("change", renderReportsTable);
     $("reports-filter-model").addEventListener("change", renderReportsTable);
@@ -144,29 +159,6 @@ async function init() {
         renderReportsTable();
       });
     });
-    const reportUpload = $("report-upload");
-    if (reportUpload) {
-      reportUpload.addEventListener("change", async () => {
-        const f = reportUpload.files && reportUpload.files[0];
-        if (!f) return;
-        const fd = new FormData();
-        fd.append("file", f);
-        try {
-          const r = await fetch("/api/reports/load", { method: "POST", body: fd });
-          if (!r.ok) {
-            const body = await r.json().catch(() => ({}));
-            alert("Upload failed: " + (body.error || r.status));
-            return;
-          }
-          const body = await r.json();
-          openLoadedReport(body);
-        } catch (e) {
-          alert("Upload failed: " + e.message);
-        } finally {
-          reportUpload.value = "";
-        }
-      });
-    }
   }
   $("sf-login-btn").addEventListener("click", async () => {
     const btn = $("sf-login-btn");
@@ -420,6 +412,7 @@ async function startRun() {
   $("setup-view").hidden = true;
   $("progress-view").hidden = false;
   setStepperVisible(true);  // run is starting → stepper relevant
+  state.cameFromReports = false;  // fresh run, not viewing a saved report
 
   const body = {
     scenario_ids: checked,
@@ -528,6 +521,7 @@ async function startFreeformRun() {
   $("setup-view").hidden = true;
   $("progress-view").hidden = false;
   setStepperVisible(true);  // freeform run starting → stepper relevant
+  state.cameFromReports = false;
 
   const body = {
     prompt,
@@ -762,6 +756,7 @@ async function loadReportById(reportId) {
       alert("Could not load report: " + (body.error || res.status));
       return;
     }
+    state.cameFromReports = true;
     openLoadedReport(body);
   } catch (e) {
     alert("Could not load report: " + e.message);
@@ -779,6 +774,14 @@ function openLoadedReport(summary) {
       showSummary();
     }
   });
+}
+
+function goBackToReports() {
+  state.cameFromReports = false;
+  state.active = "setup";
+  renderSetup("reports");
+  loadReports();
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 // After a load, register every scenario id from the report into state.scenarios
@@ -922,6 +925,7 @@ function showScenario(sid) {
   $("setup-view").hidden = true;
   $("summary-view").hidden = true;
   $("scenario-view").hidden = false;
+  $("scenario-back-link").hidden = !state.cameFromReports;
   setStepperVisible(true);  // viewing a scenario → stepper relevant
   renderScenario(sid);
 }
@@ -1472,6 +1476,7 @@ async function showSummary() {
   $("setup-view").hidden = true;
   $("scenario-view").hidden = true;
   $("summary-view").hidden = false;
+  $("summary-back-link").hidden = !state.cameFromReports;
   setStepperVisible(true);  // summary view → stepper still relevant
 
   let analysis;
@@ -1743,6 +1748,7 @@ function renderSetup(section) {
 // into a scenario tab from the stepper to watch its progress.
 function goHome() {
   state.active = "landing";
+  state.cameFromReports = false;
   document.querySelectorAll(".step.active").forEach((n) => {
     n.classList.remove("active");
   });
