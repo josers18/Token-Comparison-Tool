@@ -65,9 +65,20 @@ class AppConfig(BaseModel):
     reports_retain: int = 10
 
 
+def _coerce_int(v, default: int) -> int:
+    """Pydantic 422s on null/NaN, but the SPA's parseInt() can produce
+    those when an input field is empty or missing. Treat anything
+    non-positive-integer as the default so the run starts."""
+    try:
+        n = int(v)
+        return n if n > 0 else default
+    except (TypeError, ValueError):
+        return default
+
+
 class RunRequest(BaseModel):
-    scenario_ids: list[str]
-    runs_per_path: int = 3
+    scenario_ids: list[str] = []
+    runs_per_path: Optional[int] = None
     model: str = "claude-4-5-sonnet"
     # Operator + org_name are descriptive labels stored on the report row
     # only — no semantic dependence. Default to placeholders so a
@@ -75,8 +86,17 @@ class RunRequest(BaseModel):
     # real values but we shouldn't punish a stale frontend that doesn't.
     operator: str = "(unknown)"
     org_name: str = "(unknown)"
-    max_turns: int = 15
-    timeout_s: int = 300
+    max_turns: Optional[int] = None
+    timeout_s: Optional[int] = None
+
+    def resolved_runs_per_path(self) -> int:
+        return _coerce_int(self.runs_per_path, 3)
+
+    def resolved_max_turns(self) -> int:
+        return _coerce_int(self.max_turns, 15)
+
+    def resolved_timeout_s(self) -> int:
+        return _coerce_int(self.timeout_s, 300)
 
 
 class FreeformRunRequest(BaseModel):
@@ -86,12 +106,21 @@ class FreeformRunRequest(BaseModel):
     # stepper dot as soon as the user clicks Run, before the POST returns.
     # Sanitized server-side so we don't accept arbitrary IDs.
     scenario_id: Optional[str] = None
-    runs_per_path: int = 1
+    runs_per_path: Optional[int] = None
     model: str = "claude-4-5-sonnet"
     operator: str = "local user"
     org_name: str = "(local org)"
-    max_turns: int = 30
-    timeout_s: int = 600
+    max_turns: Optional[int] = None
+    timeout_s: Optional[int] = None
+
+    def resolved_runs_per_path(self) -> int:
+        return _coerce_int(self.runs_per_path, 1)
+
+    def resolved_max_turns(self) -> int:
+        return _coerce_int(self.max_turns, 30)
+
+    def resolved_timeout_s(self) -> int:
+        return _coerce_int(self.timeout_s, 600)
 
 
 def _event_to_dict(e: ProgressEvent) -> dict:
@@ -291,8 +320,10 @@ def create_app(config: AppConfig) -> FastAPI:
         )
 
         options = BenchmarkOptions(
-            model=req.model, max_turns=req.max_turns, timeout_s=req.timeout_s,
-            runs_per_path=req.runs_per_path,
+            model=req.model,
+            max_turns=req.resolved_max_turns(),
+            timeout_s=req.resolved_timeout_s(),
+            runs_per_path=req.resolved_runs_per_path(),
             mcp_template_path=config.mcp_config_path,
             operator=req.operator, org_name=req.org_name,
             sf_token=sf_token,
@@ -346,8 +377,10 @@ def create_app(config: AppConfig) -> FastAPI:
         )
 
         options = BenchmarkOptions(
-            model=req.model, max_turns=req.max_turns, timeout_s=req.timeout_s,
-            runs_per_path=req.runs_per_path,
+            model=req.model,
+            max_turns=req.resolved_max_turns(),
+            timeout_s=req.resolved_timeout_s(),
+            runs_per_path=req.resolved_runs_per_path(),
             mcp_template_path=config.mcp_config_path,
             operator=req.operator, org_name=req.org_name,
             sf_token=sf_token,
