@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, Request, Response
+from fastapi import Body, FastAPI, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -335,7 +335,10 @@ def create_app(config: AppConfig) -> FastAPI:
         return JSONResponse({"scenarios": rows}, headers=_NO_STORE)
 
     @app.post("/api/admin/scenarios")
-    async def admin_create_scenario(payload: ScenarioPayload, request: Request):
+    async def admin_create_scenario(
+        request: Request,
+        payload: ScenarioPayload = Body(...),
+    ):
         guard = await _require_sf_session(request)
         if guard is not None:
             return guard
@@ -358,7 +361,9 @@ def create_app(config: AppConfig) -> FastAPI:
 
     @app.put("/api/admin/scenarios/{scenario_id}")
     async def admin_update_scenario(
-        scenario_id: str, payload: ScenarioPayload, request: Request,
+        scenario_id: str,
+        request: Request,
+        payload: ScenarioPayload = Body(...),
     ):
         guard = await _require_sf_session(request)
         if guard is not None:
