@@ -23,6 +23,14 @@
   </header>
 
   <main class="container">
+    <section id="login-view" class="card login-splash" hidden>
+      <h1 class="login-title">Sign in with Salesforce</h1>
+      <p class="login-subtitle">This tool measures token cost between native Salesforce REST tools and the Salesforce-hosted MCP gateway against your org. Sign in once with OAuth and you'll be able to run benchmarks, save reports, and (with the right token) edit the scenario catalog.</p>
+      <button class="primary login-cta" id="login-cta-btn">Connect Salesforce <span aria-hidden="true">→</span></button>
+      <p class="muted login-hint" id="login-cta-hint">You'll be redirected to your Salesforce org's login page, then back here.</p>
+      <p class="muted login-error" id="login-cta-error" hidden></p>
+    </section>
+
     <nav class="stepper" id="stepper" aria-label="Benchmark steps"></nav>
 
     <section id="landing-view" class="card landing">

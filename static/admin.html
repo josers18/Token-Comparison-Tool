@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin — Token Comparison Tool</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=Geist:wght@300..600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <a class="brand" href="/" aria-label="Back to home">
+      <span class="dot"></span>
+      <span class="wordmark">Token Comparison Tool</span>
+      <span class="sub">Admin</span>
+    </a>
+    <nav class="header-nav" aria-label="Main">
+      <a class="header-link" href="/">← Back to app</a>
+    </nav>
+  </header>
+
+  <main class="container">
+    <section id="admin-gate" class="card login-splash">
+      <h1 class="login-title">Admin token</h1>
+      <p class="login-subtitle">This page edits the scenario catalog. Paste the token from <code>heroku config:get ADMIN_TOKEN</code>; it'll be remembered in this browser so you only have to enter it once.</p>
+      <div class="freeform-field">
+        <label for="admin-token-input">Token</label>
+        <input type="password" id="admin-token-input" placeholder="VvYizez5L_…" autocomplete="off">
+      </div>
+      <button class="primary" id="admin-token-submit">Unlock <span aria-hidden="true">→</span></button>
+      <p class="muted login-hint" id="admin-token-hint">The token is only stored in this browser's localStorage; it is not sent anywhere except as an Authorization header on admin API calls.</p>
+      <p class="muted login-error" id="admin-token-error" hidden></p>
+    </section>
+
+    <section id="admin-view" class="card" hidden>
+      <h1 class="catalog-title">Scenario catalog</h1>
+      <p class="muted" id="admin-summary">Loading…</p>
+
+      <div class="admin-actions">
+        <button class="primary" id="admin-new-btn">+ New scenario</button>
+        <button class="ghost" id="admin-show-inactive-btn">Show inactive</button>
+        <button class="ghost" id="admin-logout-btn">Forget token</button>
+      </div>
+
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Title</th>
+            <th>Scope</th>
+            <th>Difficulty</th>
+            <th>Updated</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="admin-tbody"></tbody>
+      </table>
+
+      <!-- Edit/create form modal -->
+      <div id="admin-form-overlay" class="admin-form-overlay" hidden>
+        <div class="admin-form-card">
+          <h2 id="admin-form-title">New scenario</h2>
+          <p class="muted" id="admin-form-subtitle">Fields marked * are required.</p>
+          <div class="freeform-field">
+            <label>ID *<br>
+              <input type="text" id="admin-f-id" placeholder="s07_my_new_scenario">
+            </label>
+            <p class="muted form-hint">Lower-case identifier with underscores. Cannot be changed after creation.</p>
+          </div>
+          <div class="freeform-field">
+            <label>Title *<br>
+              <input type="text" id="admin-f-title" placeholder="Top 10 leads by lead score">
+            </label>
+          </div>
+          <div class="admin-form-row">
+            <div class="freeform-field">
+              <label>Scope (category) *<br>
+                <select id="admin-f-category">
+                  <option>core-crm</option>
+                  <option>data-360</option>
+                  <option>freeform</option>
+                </select>
+              </label>
+            </div>
+            <div class="freeform-field">
+              <label>Difficulty *<br>
+                <select id="admin-f-difficulty">
+                  <option>simple</option>
+                  <option selected>medium</option>
+                  <option>complex</option>
+                </select>
+              </label>
+            </div>
+          </div>
+          <div class="freeform-field">
+            <label>Prompt *<br>
+              <textarea id="admin-f-prompt" rows="6" placeholder="Describe the task in plain English…"></textarea>
+            </label>
+          </div>
+          <div class="freeform-field">
+            <label>Expected operations<br>
+              <textarea id="admin-f-expected" rows="3" placeholder="One operation per line, e.g. &#10;Native: sf data query Lead&#10;MCP: mcp__salesforce_crm__soqlQuery"></textarea>
+            </label>
+            <p class="muted form-hint">One per line. Used as documentation only — the model isn't constrained by these.</p>
+          </div>
+          <div class="freeform-field">
+            <label>Success criteria — must contain (one per line)<br>
+              <textarea id="admin-f-must-contain" rows="2" placeholder="LeadScore"></textarea>
+            </label>
+          </div>
+          <div class="freeform-field">
+            <label>Notes<br>
+              <textarea id="admin-f-notes" rows="2" placeholder="Tests SOQL ORDER BY on a custom numeric field."></textarea>
+            </label>
+          </div>
+          <div class="admin-form-actions">
+            <button class="ghost" id="admin-form-cancel">Cancel</button>
+            <button class="primary" id="admin-form-save">Save</button>
+          </div>
+          <p class="muted login-error" id="admin-form-error" hidden></p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    (function () {
+      const TOKEN_KEY = "tct_admin_token";
+      const $ = (id) => document.getElementById(id);
+
+      function getToken() { return localStorage.getItem(TOKEN_KEY) || ""; }
+      function setToken(t) { localStorage.setItem(TOKEN_KEY, t); }
+      function clearToken() { localStorage.removeItem(TOKEN_KEY); }
+
+      function authHeaders() {
+        return { "Authorization": "Bearer " + getToken() };
+      }
+
+      async function probeToken(token) {
+        const r = await fetch("/api/admin/scenarios", {
+          headers: { "Authorization": "Bearer " + token },
+          cache: "no-store",
+        });
+        return r.status;
+      }
+
+      function showGate() {
+        $("admin-gate").hidden = false;
+        $("admin-view").hidden = true;
+      }
+      function showCatalog() {
+        $("admin-gate").hidden = true;
+        $("admin-view").hidden = false;
+        loadCatalog();
+      }
+
+      $("admin-token-submit").addEventListener("click", async () => {
+        const t = $("admin-token-input").value.trim();
+        $("admin-token-error").hidden = true;
+        if (!t) {
+          $("admin-token-error").textContent = "Token is empty.";
+          $("admin-token-error").hidden = false;
+          return;
+        }
+        const status = await probeToken(t);
+        if (status === 200) {
+          setToken(t);
+          showCatalog();
+        } else if (status === 401) {
+          $("admin-token-error").textContent = "Token rejected by the server.";
+          $("admin-token-error").hidden = false;
+        } else if (status === 503) {
+          $("admin-token-error").textContent =
+            "Admin endpoints are disabled (ADMIN_TOKEN not set on the server).";
+          $("admin-token-error").hidden = false;
+        } else {
+          $("admin-token-error").textContent =
+            "Unexpected status " + status + " from the server.";
+          $("admin-token-error").hidden = false;
+        }
+      });
+
+      $("admin-logout-btn").addEventListener("click", () => {
+        clearToken();
+        location.reload();
+      });
+
+      // ─── Scenario list ─────────────────────────────────────────────
+      let showInactive = false;
+      let allScenarios = [];
+
+      $("admin-show-inactive-btn").addEventListener("click", () => {
+        showInactive = !showInactive;
+        $("admin-show-inactive-btn").textContent =
+          showInactive ? "Hide inactive" : "Show inactive";
+        renderRows();
+      });
+
+      async function loadCatalog() {
+        $("admin-summary").textContent = "Loading…";
+        const r = await fetch("/api/admin/scenarios", { headers: authHeaders(), cache: "no-store" });
+        if (r.status === 401) { clearToken(); location.reload(); return; }
+        const body = await r.json();
+        allScenarios = body.scenarios || [];
+        $("admin-summary").textContent =
+          allScenarios.length + " scenarios in the catalog · " +
+          allScenarios.filter(s => s.is_active).length + " active";
+        renderRows();
+      }
+
+      function renderRows() {
+        const tbody = $("admin-tbody");
+        tbody.replaceChildren();
+        const rows = showInactive
+          ? allScenarios
+          : allScenarios.filter(s => s.is_active);
+        for (const s of rows) {
+          const tr = document.createElement("tr");
+          tr.className = s.is_active ? "" : "inactive";
+          tr.appendChild(td(s.id, "mono"));
+          tr.appendChild(td(s.title));
+          tr.appendChild(td(s.category));
+          tr.appendChild(td(s.difficulty));
+          tr.appendChild(td(formatTs(s.updated_at)));
+          tr.appendChild(td(s.is_active ? "Active" : "Inactive"));
+          const actions = document.createElement("td");
+          actions.className = "admin-row-actions";
+          const editBtn = btn("Edit", () => openForm(s));
+          actions.appendChild(editBtn);
+          if (s.is_active) {
+            actions.appendChild(btn("Delete", () => softDelete(s.id), "danger"));
+          } else {
+            actions.appendChild(btn("Restore", () => restore(s.id)));
+          }
+          tr.appendChild(actions);
+          tbody.appendChild(tr);
+        }
+      }
+
+      function td(text, cls) {
+        const t = document.createElement("td");
+        if (cls) t.className = cls;
+        t.textContent = text == null ? "—" : text;
+        return t;
+      }
+      function btn(text, onclick, cls) {
+        const b = document.createElement("button");
+        b.className = "ghost" + (cls ? " " + cls : "");
+        b.textContent = text;
+        b.addEventListener("click", onclick);
+        return b;
+      }
+      function formatTs(iso) {
+        if (!iso) return "—";
+        try { return new Date(iso).toLocaleString(); }
+        catch (e) { return iso; }
+      }
+
+      // ─── Form (new + edit) ─────────────────────────────────────────
+      let editingId = null;
+
+      $("admin-new-btn").addEventListener("click", () => openForm(null));
+      $("admin-form-cancel").addEventListener("click", closeForm);
+      $("admin-form-save").addEventListener("click", saveForm);
+
+      function openForm(scenario) {
+        editingId = scenario ? scenario.id : null;
+        $("admin-form-title").textContent = scenario ? "Edit scenario" : "New scenario";
+        $("admin-f-id").value = scenario ? scenario.id : "";
+        $("admin-f-id").disabled = !!scenario;
+        $("admin-f-title").value = scenario ? scenario.title : "";
+        $("admin-f-category").value = scenario ? scenario.category : "core-crm";
+        $("admin-f-difficulty").value = scenario ? scenario.difficulty : "medium";
+        $("admin-f-prompt").value = scenario ? scenario.prompt : "";
+        $("admin-f-expected").value = scenario
+          ? (scenario.expected_operations || []).join("\n") : "";
+        const mc = (scenario && scenario.success_criteria_json
+          && scenario.success_criteria_json.must_contain) || [];
+        $("admin-f-must-contain").value = mc.join("\n");
+        $("admin-f-notes").value = scenario ? (scenario.notes || "") : "";
+        $("admin-form-error").hidden = true;
+        $("admin-form-overlay").hidden = false;
+      }
+      function closeForm() {
+        $("admin-form-overlay").hidden = true;
+        editingId = null;
+      }
+
+      async function saveForm() {
+        const id = $("admin-f-id").value.trim();
+        const title = $("admin-f-title").value.trim();
+        const prompt = $("admin-f-prompt").value.trim();
+        if (!id || !title || !prompt) {
+          showFormError("ID, title, and prompt are required.");
+          return;
+        }
+        const payload = {
+          id,
+          title,
+          category: $("admin-f-category").value,
+          difficulty: $("admin-f-difficulty").value,
+          prompt,
+          expected_operations: $("admin-f-expected").value.split("\n").map(s => s.trim()).filter(Boolean),
+          success_criteria: {
+            must_contain: $("admin-f-must-contain").value.split("\n").map(s => s.trim()).filter(Boolean),
+          },
+          notes: $("admin-f-notes").value.trim(),
+          is_active: true,
+        };
+        const url = editingId
+          ? "/api/admin/scenarios/" + encodeURIComponent(editingId)
+          : "/api/admin/scenarios";
+        const method = editingId ? "PUT" : "POST";
+        const r = await fetch(url, {
+          method,
+          headers: { ...authHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (r.ok) {
+          closeForm();
+          await loadCatalog();
+        } else {
+          let msg = "Save failed (" + r.status + ").";
+          try {
+            const body = await r.json();
+            msg = body.error || body.detail || msg;
+          } catch (e) {}
+          showFormError(typeof msg === "string" ? msg : JSON.stringify(msg));
+        }
+      }
+
+      function showFormError(msg) {
+        $("admin-form-error").textContent = msg;
+        $("admin-form-error").hidden = false;
+      }
+
+      async function softDelete(id) {
+        if (!confirm("Soft-delete " + id + "?\n\nIt will disappear from the catalog but historical reports referencing it will still resolve title/category.")) return;
+        const r = await fetch("/api/admin/scenarios/" + encodeURIComponent(id), {
+          method: "DELETE", headers: authHeaders(),
+        });
+        if (r.ok) await loadCatalog();
+        else alert("Delete failed (" + r.status + ").");
+      }
+
+      async function restore(id) {
+        const r = await fetch("/api/admin/scenarios/" + encodeURIComponent(id) + "/restore", {
+          method: "POST", headers: authHeaders(),
+        });
+        if (r.ok) await loadCatalog();
+        else alert("Restore failed (" + r.status + ").");
+      }
+
+      // ─── Bootstrap ─────────────────────────────────────────────────
+      async function bootstrap() {
+        const token = getToken();
+        if (!token) { showGate(); return; }
+        const status = await probeToken(token);
+        if (status === 200) showCatalog();
+        else { clearToken(); showGate(); }
+      }
+      bootstrap();
+    })();
+  </script>
+</body>
+</html>

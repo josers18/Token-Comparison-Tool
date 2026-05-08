@@ -183,6 +183,44 @@ html, body {
 }
 
 /* ═════════════════════════════════════════════════════════════
+   Login splash — gates the entire app
+   ═════════════════════════════════════════════════════════════ */
+.card.login-splash {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 60px 0 24px;
+  max-width: 640px;
+}
+.login-title {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: clamp(34px, 4.6vw, 52px);
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  margin: 0 0 16px;
+}
+.login-subtitle {
+  font-size: 16px;
+  line-height: 1.55;
+  margin: 0 0 32px;
+  color: var(--ink-mute);
+}
+.login-cta {
+  font-size: 15px;
+  padding: 14px 22px;
+}
+.login-hint {
+  font-size: 12px;
+  margin: 14px 0 0;
+}
+.login-error {
+  font-size: 13px;
+  margin-top: 14px;
+  color: var(--crimson);
+}
+
+/* ═════════════════════════════════════════════════════════════
    Landing chooser — three primary paths
    ═════════════════════════════════════════════════════════════ */
 .card.landing {
@@ -275,6 +313,101 @@ html, body {
 }
 @media (max-width: 800px) {
   .landing-cards { grid-template-columns: 1fr; }
+}
+
+/* ═════════════════════════════════════════════════════════════
+   Admin page — scenario CRUD
+   ═════════════════════════════════════════════════════════════ */
+.admin-actions {
+  display: flex;
+  gap: 12px;
+  margin: 24px 0;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.admin-actions .ghost { font-size: 13px; }
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  margin-top: 8px;
+}
+.admin-table th {
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--hair-2);
+}
+.admin-table td {
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--hair-1, #f0eee8);
+  vertical-align: middle;
+}
+.admin-table td.mono { font-family: var(--mono); font-size: 12px; }
+.admin-table tr.inactive td {
+  opacity: 0.55;
+  font-style: italic;
+}
+.admin-row-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.admin-row-actions .ghost {
+  font-size: 12px;
+  padding: 6px 10px;
+}
+.admin-row-actions .danger {
+  color: var(--crimson);
+}
+.admin-row-actions .danger:hover {
+  background: var(--crimson-tint, rgba(192, 56, 56, 0.08));
+}
+
+.admin-form-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 20, 20, 0.45);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 60px 20px;
+  z-index: 1000;
+  overflow-y: auto;
+}
+.admin-form-card {
+  background: var(--paper, #fff);
+  border-radius: var(--r-md, 12px);
+  padding: 32px;
+  max-width: 720px;
+  width: 100%;
+  box-shadow: 0 24px 60px -20px rgba(20, 20, 20, 0.4);
+}
+.admin-form-card h2 {
+  font-family: var(--serif);
+  font-size: 28px;
+  margin: 0 0 8px;
+  font-weight: 500;
+}
+.admin-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.admin-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 16px;
+}
+.form-hint {
+  font-size: 12px;
+  margin: 4px 0 0;
 }
 
 /* "← Back to home" link on the setup-view */

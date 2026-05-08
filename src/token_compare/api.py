@@ -240,6 +240,30 @@ def create_app(config: AppConfig) -> FastAPI:
         body = check_environment(mcp_config_path=config.mcp_config_path).model_dump()
         return JSONResponse(body, headers=_NO_STORE)
 
+    @app.get("/api/sf/status")
+    async def sf_status(request: Request) -> JSONResponse:
+        """Has the current browser session completed the SF OAuth flow?
+        The SPA hits this on load to decide whether to show the login
+        splash or the home chooser. {logged_in: bool, instance_url?: str}."""
+        from token_compare import db
+        from token_compare.sessions import (
+            COOKIE_NAME, verify_session_id, BadSignature,
+        )
+        signed = request.cookies.get(COOKIE_NAME)
+        if not signed:
+            return JSONResponse({"logged_in": False}, headers=_NO_STORE)
+        try:
+            sid = verify_session_id(signed)
+        except BadSignature:
+            return JSONResponse({"logged_in": False}, headers=_NO_STORE)
+        token = await db.get_sf_token(sid)
+        if not token:
+            return JSONResponse({"logged_in": False}, headers=_NO_STORE)
+        return JSONResponse(
+            {"logged_in": True, "instance_url": token.get("instance_url", "")},
+            headers=_NO_STORE,
+        )
+
     @app.get("/api/scenarios")
     async def list_scenarios() -> JSONResponse:
         body = [s.model_dump() for s in await load_all_from_db()]

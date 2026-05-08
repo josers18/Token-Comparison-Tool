@@ -35,7 +35,44 @@ async function init() {
   await loadPreflight();
   await loadScenarios();
   await loadModels();
-  renderLanding();
+
+  // Decide between login splash and the home chooser. The whole app
+  // is gated on a Salesforce session — preflight tells us the *server*
+  // is healthy, sf/status tells us the *user* has authenticated.
+  const loggedIn = await checkSfLoginStatus();
+  if (!loggedIn) {
+    renderLogin();
+  } else {
+    renderLanding();
+  }
+
+  // Wire the splash's login button. Reuses the same /api/sf/login flow
+  // the old setup-view "Connect Salesforce" button used.
+  const loginCta = $("login-cta-btn");
+  if (loginCta) {
+    loginCta.addEventListener("click", async () => {
+      loginCta.disabled = true;
+      $("login-cta-hint").textContent = "Redirecting to Salesforce…";
+      $("login-cta-error").hidden = true;
+      try {
+        const res = await fetch("/api/sf/login", { method: "POST" });
+        const body = await res.json();
+        if (body.ok && body.authorize_url) {
+          window.location.href = body.authorize_url;
+        } else {
+          $("login-cta-error").textContent =
+            "Login could not start: " + (body.error || "unknown error");
+          $("login-cta-error").hidden = false;
+          loginCta.disabled = false;
+        }
+      } catch (e) {
+        $("login-cta-error").textContent = "Network error: " + e.message;
+        $("login-cta-error").hidden = false;
+        loginCta.disabled = false;
+      }
+    });
+  }
+
   $("run-btn").addEventListener("click", startRun);
   $("run-again").addEventListener("click", () => location.reload());
   // Brand mark = "home". Returns the user to the landing chooser
@@ -134,11 +171,11 @@ async function loadPreflight() {
     banner.textContent = "● preflight failed";
     banner.className = "status err";
   }
-  // Always show the Connect Salesforce button — preflight only knows
-  // about env config, not whether the *user* has authenticated. If the
-  // ECA isn't configured the click will surface a clear server error,
-  // which is more useful than a hidden button.
-  $("sf-login-row").hidden = false;
+  // The dedicated login splash now gates the whole app, so the
+  // legacy in-setup-view login row is redundant. Keep it permanently
+  // hidden — it stays in the markup only so an old cached app.js
+  // wouldn't crash trying to address it.
+  $("sf-login-row").hidden = true;
 }
 
 async function loadScenarios() {
@@ -1459,7 +1496,34 @@ async function showSummary() {
   }
 }
 
+async function checkSfLoginStatus() {
+  // Returns true if the current browser session has an SF token.
+  // If the endpoint itself errors, we err on the side of "not logged
+  // in" so the splash gives the user a path forward instead of a
+  // half-broken catalog.
+  try {
+    const res = await fetch("/api/sf/status", { cache: "no-store" });
+    if (!res.ok) return false;
+    const body = await res.json();
+    return !!body.logged_in;
+  } catch (e) {
+    return false;
+  }
+}
+
+function renderLogin() {
+  state.active = "login";
+  $("login-view").hidden = false;
+  $("landing-view").hidden = true;
+  $("setup-view").hidden = true;
+  $("scenario-view").hidden = true;
+  $("summary-view").hidden = true;
+  $("progress-view").hidden = true;
+}
+
 function renderLanding() {
+  state.active = "landing";
+  $("login-view").hidden = true;
   $("landing-view").hidden = false;
   $("setup-view").hidden = true;
   $("scenario-view").hidden = true;
@@ -1474,6 +1538,7 @@ function renderLanding() {
 
 function renderSetup(section) {
   // section = "benchmark" | "freeform" | "reports" — which sub-card to reveal.
+  $("login-view").hidden = true;
   $("landing-view").hidden = true;
   $("setup-view").hidden = false;
   $("scenario-view").hidden = true;
