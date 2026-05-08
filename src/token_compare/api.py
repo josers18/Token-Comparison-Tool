@@ -637,5 +637,14 @@ def main() -> None:
     uvicorn.run(app, host="127.0.0.1", port=8000)
 
 
+def _bootstrap_app() -> FastAPI:
+    """Module-level entry point for `uvicorn token_compare.api:app`."""
+    _load_dotenv_if_present()
+    return create_app(AppConfig())
+
+
+app = _bootstrap_app()
+
+
 if __name__ == "__main__":
     main()
