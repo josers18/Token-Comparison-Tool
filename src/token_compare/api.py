@@ -450,21 +450,45 @@ def create_app(config: AppConfig) -> FastAPI:
         latest = files[0]
         return FileResponse(latest, media_type="text/markdown", filename=latest.name)
 
-    @app.get("/api/reports/latest/data")
-    def latest_report_data() -> dict:
-        """Return the latest benchmark's data as JSON (parses from memory if
-        active run ended recently, otherwise re-reads the report file's
-        embedded raw_json appendix)."""
+    async def _ensure_latest_in_cache() -> Optional[dict]:
+        """Return the latest run's BenchmarkResult dict, populating the
+        in-memory cache from Postgres if a dyno restart wiped it.
+        None if no finalized report exists yet."""
         if _current_run.get("result_data"):
-            data = dict(_current_run["result_data"])
-            data["freeform_scenario"] = _current_run.get("freeform_scenario")
-            return data
-        return JSONResponse({"scenarios": []}, status_code=404)
+            return _current_run["result_data"]
+        from token_compare import db
+        rows = await db.list_reports(limit=1)
+        if not rows:
+            return None
+        rec = await db.get_report(rows[0]["id"])
+        if not rec or not rec.get("payload_json"):
+            return None
+        from token_compare.models import BenchmarkResult
+        result = BenchmarkResult.model_validate(rec["payload_json"])
+        _current_run["active"] = False
+        _current_run["events"] = []
+        _current_run["started_at"] = result.started_at
+        _current_run["report_path"] = rows[0]["id"]
+        _current_run["result_data"] = result.model_dump()
+        _current_run.setdefault("freeform_scenario", None)
+        return _current_run["result_data"]
+
+    @app.get("/api/reports/latest/data")
+    async def latest_report_data():
+        """Return the latest benchmark's data as JSON. Reads the in-memory
+        cache first; falls back to Postgres for runs that completed before
+        a dyno restart wiped the cache."""
+        result_data = await _ensure_latest_in_cache()
+        if result_data is None:
+            return JSONResponse({"scenarios": []}, status_code=404)
+        data = dict(result_data)
+        data["freeform_scenario"] = _current_run.get("freeform_scenario")
+        return JSONResponse(data, headers=_NO_STORE)
 
     @app.get("/api/reports/latest/summary")
-    def latest_summary() -> dict:
+    async def latest_summary():
         from token_compare.analysis import build_summary_analysis
-        result_data = _current_run.get("result_data")
+        result_data = await _ensure_latest_in_cache()
         if not result_data:
             return JSONResponse({"error": "no benchmark cached"}, status_code=404)
         scenarios_meta = {
@@ -480,7 +504,7 @@ def create_app(config: AppConfig) -> FastAPI:
                 "difficulty": ff.get("difficulty"),
             }
         analysis = build_summary_analysis(result_data, scenarios_meta)
-        return analysis.model_dump()
+        return JSONResponse(analysis.model_dump(), headers=_NO_STORE)
 
     @app.get("/api/reports")
     async def list_saved_reports() -> dict:
@@ -612,17 +636,16 @@ def create_app(config: AppConfig) -> FastAPI:
         return {"ok": True}
 
     @app.get("/api/scenarios/{scenario_id}/trace")
-    def scenario_trace(scenario_id: str) -> dict:
+    async def scenario_trace(scenario_id: str):
         """Return per-turn traces and an explanation paragraph for the
-        most recent benchmark run's data on this scenario."""
-        # Use the in-memory cached result if available (most recent run).
-        result_data = _current_run.get("result_data")
+        most recent benchmark run's data on this scenario. Falls back to
+        Postgres if the in-memory cache was wiped by a dyno restart."""
+        result_data = await _ensure_latest_in_cache()
         if not result_data:
             return JSONResponse(
                 {"error": "no benchmark result cached; run a benchmark first"},
                 status_code=404,
             )
-        # Find the scenario
         from token_compare.models import BenchmarkResult
         result = BenchmarkResult.model_validate(result_data)
         sr = next((s for s in result.scenarios if s.scenario_id == scenario_id), None)
@@ -637,14 +660,14 @@ def create_app(config: AppConfig) -> FastAPI:
         native_summary = build_comparison("Native", sr.native_runs, native_traces)
         mcp_summary = build_comparison("MCP", sr.mcp_runs, mcp_traces)
 
-        return {
+        return JSONResponse({
             "scenario_id": scenario_id,
             "native_traces": [t.model_dump() for t in native_traces],
             "mcp_traces": [t.model_dump() for t in mcp_traces],
             "native_summary": native_summary.model_dump(),
             "mcp_summary": mcp_summary.model_dump(),
             "explanation": explain_comparison(native_summary, mcp_summary),
-        }
+        }, headers=_NO_STORE)
 
     @app.get("/callback")
     async def oauth_callback(
