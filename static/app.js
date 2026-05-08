@@ -187,6 +187,9 @@ async function loadModels() {
       o.textContent = m;
       sel.appendChild(o);
     }
+    // Default selection: sonnet if available, otherwise first option.
+    const preferred = (models || []).find(m => m === "claude-4-5-sonnet");
+    if (preferred) sel.value = preferred;
   } catch (e) {
     // /api/models is supposed to never fail — but if it does (e.g. no
     // Inference addons attached on a dev install), leave the dropdown

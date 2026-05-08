@@ -8,7 +8,7 @@ from typing import Any, Optional
 import anthropic
 
 from token_compare.inference_client import get_client_for_model
-from token_compare.mcp_path import build_mcp_servers
+from token_compare.mcp_proxy import McpProxy, load_specs_from_template
 from token_compare.models import PathName, RunResult, Scenario, SuccessCriteria
 from token_compare.native_tools import NATIVE_TOOL_DEFS, dispatch_native_tool
 from token_compare.pricing import compute_cost_usd
@@ -66,24 +66,37 @@ def _create_with_retry(create_fn, kwargs, *, retries: int = 1):
             attempt += 1
 
 
-def _native_tool_blocks_to_results(content_blocks, sf_token) -> list[dict]:
-    """For each tool_use block, dispatch to the local Native tool and
-    return the tool_result blocks Claude expects on the next turn."""
+def _tool_blocks_to_results(
+    content_blocks,
+    *,
+    sf_token: dict,
+    mcp_proxy: Optional[McpProxy] = None,
+) -> list[dict]:
+    """Translate every tool_use block in the assistant turn into a
+    tool_result block for the next user turn. Dispatches to the Native
+    tool registry by default; if `mcp_proxy` is given, uses that instead
+    (the MCP path).
+    """
     out = []
     for blk in content_blocks:
         if getattr(blk, "type", None) != "tool_use":
             continue
         try:
-            result = dispatch_native_tool(blk.name, blk.input or {}, sf_token)
+            if mcp_proxy is not None:
+                # mcp_proxy.call already returns a string (text content
+                # rendered from upstream tool_result.content blocks).
+                result_str = mcp_proxy.call(blk.name, blk.input or {})
+            else:
+                native_out = dispatch_native_tool(blk.name, blk.input or {}, sf_token)
+                # Anthropic accepts strings; JSON is more parser-friendly
+                # than Python repr.
+                result_str = json.dumps(native_out, default=str)
         except Exception as e:
-            result = {"error": f"{type(e).__name__}: {e}"}
+            result_str = f"ERROR: {type(e).__name__}: {e}"
         out.append({
             "type": "tool_result",
             "tool_use_id": blk.id,
-            # JSON, not Python repr — Anthropic's tool_result content
-            # accepts strings; passing valid JSON keeps downstream parsers
-            # (and the model itself) happier than `{'records': [...]}`.
-            "content": json.dumps(result, default=str)[:50_000],
+            "content": result_str[:50_000],
         })
     return out
 
@@ -102,6 +115,7 @@ def run_once(
     aggregated across all turns."""
     started = time.time()
     client = get_client_for_model(model)
+    messages_create = client.messages.create
 
     prompt = _build_prompt(scenario)
     messages: list[dict] = [{"role": "user", "content": prompt}]
@@ -110,18 +124,31 @@ def run_once(
         "model": model,
         "max_tokens": 4096,
     }
-    # The MCP connector lives on `client.beta.messages.create` and requires
-    # an explicit beta opt-in. Native path stays on the GA `client.messages`
-    # endpoint where `tools` is the standard parameter.
+
+    # Both paths now use the GA `client.messages.create` endpoint with
+    # `tools=[...]`. The Native path's tool list comes from native_tools.py;
+    # the MCP path opens an upstream MCP session against the SF gateway,
+    # asks for its tools/list, and exposes those tool defs to the model.
+    # Heroku Inference is Bedrock-backed and silently drops the
+    # mcp_servers parameter on beta.messages.create, so we run the
+    # connector loop ourselves instead.
+    mcp_proxy: Optional[McpProxy] = None
+    mcp_init_error: Optional[str] = None
     if path == PathName.NATIVE:
         base_kwargs["tools"] = NATIVE_TOOL_DEFS
-        messages_create = client.messages.create
     else:
-        base_kwargs["mcp_servers"] = build_mcp_servers(
-            mcp_template_path, sf_access_token=sf_token["access_token"],
-        )
-        base_kwargs["betas"] = ["mcp-client-2025-04-04"]
-        messages_create = client.beta.messages.create
+        try:
+            specs = load_specs_from_template(mcp_template_path)
+            mcp_proxy = McpProxy.from_specs(specs, sf_access_token=sf_token["access_token"])
+            base_kwargs["tools"] = mcp_proxy.open()
+        except Exception as e:
+            # Couldn't even reach the MCP gateway — record this as the
+            # run's error and skip the model call entirely.
+            mcp_init_error = f"mcp_init_failed ({type(e).__name__}): {e}"
+            if mcp_proxy is not None:
+                mcp_proxy.close()
+                mcp_proxy = None
+            base_kwargs["tools"] = []  # so the model call doesn't 400
 
     usage_acc = {
         "input_tokens": 0, "output_tokens": 0,
@@ -140,10 +167,10 @@ def run_once(
     raw_events: list[dict[str, Any]] = [{
         "type": "system",
         "subtype": "init",
-        "tools": [t["name"] for t in NATIVE_TOOL_DEFS] if path == PathName.NATIVE else [],
+        "tools": [t["name"] for t in (base_kwargs.get("tools") or [])],
         "mcp_servers": (
-            [{"name": s["name"]} for s in base_kwargs.get("mcp_servers", [])]
-            if path == PathName.MCP else []
+            [{"name": s.spec.name} for s in mcp_proxy.sessions]
+            if mcp_proxy is not None else []
         ),
     }]
 
@@ -164,57 +191,60 @@ def run_once(
         return out
 
     try:
-        while num_turns < max_turns:
-            num_turns += 1
-            kwargs = {**base_kwargs, "messages": messages}
-            try:
-                resp = _create_with_retry(messages_create, kwargs)
-            except anthropic.APIError as e:
-                error = f"inference error: {e}"
-                break
-            except Exception as e:
-                # Catch-all so structural bugs (TypeError on bad kwargs,
-                # network exceptions outside the SDK's APIError hierarchy,
-                # etc.) surface as a recorded run failure instead of
-                # silently terminating the benchmark.
-                error = f"inference call failed ({type(e).__name__}): {e}"
-                break
+        if mcp_init_error is not None:
+            # The MCP gateway didn't even initialize; don't waste an inference
+            # call. Record the error and short-circuit.
+            error = mcp_init_error
+        else:
+            while num_turns < max_turns:
+                num_turns += 1
+                kwargs = {**base_kwargs, "messages": messages}
+                try:
+                    resp = _create_with_retry(messages_create, kwargs)
+                except anthropic.APIError as e:
+                    error = f"inference error: {e}"
+                    break
+                except Exception as e:
+                    # Catch-all so structural bugs (TypeError on bad kwargs,
+                    # network exceptions outside the SDK's APIError hierarchy,
+                    # etc.) surface as a recorded run failure instead of
+                    # silently terminating the benchmark.
+                    error = f"inference call failed ({type(e).__name__}): {e}"
+                    break
 
-            _accumulate_usage(usage_acc, resp.usage)
-            last_stop = resp.stop_reason
+                _accumulate_usage(usage_acc, resp.usage)
+                last_stop = resp.stop_reason
 
-            for blk in (resp.content or []):
-                btype = getattr(blk, "type", None)
-                if btype == "tool_use":
-                    tool_calls.append(getattr(blk, "name", ""))
-                elif btype == "text":
-                    final_text = getattr(blk, "text", "") or final_text
+                for blk in (resp.content or []):
+                    btype = getattr(blk, "type", None)
+                    if btype == "tool_use":
+                        tool_calls.append(getattr(blk, "name", ""))
+                    elif btype == "text":
+                        final_text = getattr(blk, "text", "") or final_text
 
-            # Persist this assistant turn into raw_events for the trace UI.
-            raw_events.append({
-                "type": "assistant",
-                "message": {
-                    "content": _content_blocks_to_event_dicts(resp.content),
-                    "usage": {
-                        "input_tokens": getattr(resp.usage, "input_tokens", 0) or 0,
-                        "output_tokens": getattr(resp.usage, "output_tokens", 0) or 0,
-                        "cache_read_input_tokens": getattr(resp.usage, "cache_read_input_tokens", 0) or 0,
-                        "cache_creation_input_tokens": getattr(resp.usage, "cache_creation_input_tokens", 0) or 0,
+                # Persist this assistant turn into raw_events for the trace UI.
+                raw_events.append({
+                    "type": "assistant",
+                    "message": {
+                        "content": _content_blocks_to_event_dicts(resp.content),
+                        "usage": {
+                            "input_tokens": getattr(resp.usage, "input_tokens", 0) or 0,
+                            "output_tokens": getattr(resp.usage, "output_tokens", 0) or 0,
+                            "cache_read_input_tokens": getattr(resp.usage, "cache_read_input_tokens", 0) or 0,
+                            "cache_creation_input_tokens": getattr(resp.usage, "cache_creation_input_tokens", 0) or 0,
+                        },
                     },
-                },
-            })
+                })
 
-            if resp.stop_reason != "tool_use":
-                break
+                if resp.stop_reason != "tool_use":
+                    break
 
-            # Native path: dispatch tools locally and feed tool_result back.
-            # MCP path: Inference resolves tools server-side, so a final
-            # response should arrive with stop_reason="end_turn". If we
-            # *do* see stop_reason="tool_use" on the MCP path, the
-            # connector did not resolve the call — record it as an error
-            # rather than silently truncating the conversation.
-            if path == PathName.NATIVE:
-                tool_results = _native_tool_blocks_to_results(resp.content, sf_token)
+                # Both paths now do their tool dispatch locally. Native uses
+                # native_tools; MCP uses the McpProxy aggregating upstream
+                # MCP servers.
+                tool_results = _tool_blocks_to_results(
+                    resp.content, sf_token=sf_token, mcp_proxy=mcp_proxy,
+                )
                 if not tool_results:
                     break
                 messages.append({"role": "assistant", "content": resp.content})
@@ -223,16 +253,12 @@ def run_once(
                     "type": "user",
                     "message": {"content": tool_results},
                 })
-            else:
-                error = (
-                    "mcp_unresolved_tool_use: inference returned stop_reason='tool_use' "
-                    "on the MCP path — connector did not resolve the tool call"
-                )
-                break
 
-        if error is None and last_stop == "tool_use" and num_turns >= max_turns:
-            error = "terminal_reason=max_turns: tool-use loop did not terminate"
+            if error is None and last_stop == "tool_use" and num_turns >= max_turns:
+                error = "terminal_reason=max_turns: tool-use loop did not terminate"
     finally:
+        if mcp_proxy is not None:
+            mcp_proxy.close()
         duration_ms = int((time.time() - started) * 1000)
 
     cost = compute_cost_usd(

@@ -112,77 +112,122 @@ def test_max_turns_recorded_as_failure(monkeypatch, tmp_path):
     assert result.num_turns == 2  # cap honored
 
 
-def test_mcp_path_passes_mcp_servers_not_tools(monkeypatch, tmp_path):
+def _stub_mcp_proxy(monkeypatch, *, fake_tool_def=None, fake_call_result="ok"):
+    """Replace McpProxy.from_specs so messages_runner doesn't try to make
+    real HTTP calls to the upstream MCP server in unit tests."""
+    from unittest.mock import MagicMock as _MM
+    fake_proxy = _MM()
+    fake_proxy.open.return_value = [fake_tool_def] if fake_tool_def else []
+    fake_proxy.call.return_value = fake_call_result
+    fake_proxy.sessions = []
+    monkeypatch.setattr(
+        "token_compare.messages_runner.McpProxy.from_specs",
+        lambda specs, *, sf_access_token: fake_proxy,
+    )
+    return fake_proxy
+
+
+def test_mcp_path_routes_through_proxy(monkeypatch, tmp_path):
+    """MCP path opens an McpProxy, registers the upstream tool list as
+    `tools=[...]` on client.messages.create, and dispatches each tool_use
+    block back through the proxy."""
     cfg = tmp_path / "sf-mcp.json"
     cfg.write_text(
         '{"mcpServers":{"x":{"type":"http","url":"https://example",'
         '"headers":{"Authorization":"Bearer ${SF_ACCESS_TOKEN}"}}}}'
+    )
+    fake_tool = {
+        "name": "x__query",
+        "description": "Run a SOQL query.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    }
+    fake_proxy = _stub_mcp_proxy(
+        monkeypatch, fake_tool_def=fake_tool,
+        fake_call_result='{"records":[{"Name":"Acme"}]}',
+    )
+
+    # Two-turn conversation: turn 1 calls the MCP tool, turn 2 ends.
+    tu = MagicMock()
+    tu.type = "tool_use"
+    tu.name = "x__query"
+    tu.id = "tu_1"
+    tu.input = {"q": "SELECT Name FROM Account LIMIT 1"}
+    r1 = _make_msg_response(
+        stop_reason="tool_use", content=[tu],
+        usage={"input_tokens": 50, "output_tokens": 20},
     )
     text = MagicMock()
     text.type = "text"
-    text.text = "ok"
-    r = _make_msg_response(
+    text.text = "Done. Acme."
+    r2 = _make_msg_response(
         stop_reason="end_turn", content=[text],
-        usage={"input_tokens": 10, "output_tokens": 1},
+        usage={"input_tokens": 80, "output_tokens": 10},
     )
     fake_client = MagicMock()
-    # MCP path goes through client.beta.messages.create (mcp_servers param
-    # only exists on the beta endpoint in anthropic SDK 0.100+).
-    fake_client.beta.messages.create.return_value = r
+    fake_client.messages.create.side_effect = [r1, r2]
     monkeypatch.setattr(
         "token_compare.messages_runner.get_client_for_model",
         lambda mid: fake_client,
     )
 
-    run_once(
-        _scenario(), PathName.MCP,
-        model="claude-4-5-sonnet", max_turns=5, timeout_s=60,
-        mcp_template_path=cfg,
-        sf_token={"access_token": "TOK", "instance_url": "https://x"},
-    )
-
-    kwargs = fake_client.beta.messages.create.call_args.kwargs
-    assert "mcp_servers" in kwargs
-    assert kwargs["mcp_servers"][0]["authorization_token"] == "TOK"
-    assert "tools" not in kwargs
-    assert kwargs.get("betas") == ["mcp-client-2025-04-04"]
-    # Native-path endpoint must NOT have been called for this run.
-    fake_client.messages.create.assert_not_called()
-
-
-def test_mcp_path_flags_unresolved_tool_use(monkeypatch, tmp_path):
-    """If Inference returns stop_reason='tool_use' on the MCP path, the
-    connector did NOT resolve the call server-side — record an explicit
-    error rather than silently truncating the conversation."""
-    cfg = tmp_path / "sf-mcp.json"
-    cfg.write_text(
-        '{"mcpServers":{"x":{"type":"http","url":"https://example",'
-        '"headers":{"Authorization":"Bearer ${SF_ACCESS_TOKEN}"}}}}'
-    )
-    tu = MagicMock()
-    tu.type = "tool_use"
-    tu.name = "some_mcp_tool"
-    tu.id = "tu_1"
-    tu.input = {}
-    r = _make_msg_response(
-        stop_reason="tool_use", content=[tu],
-        usage={"input_tokens": 10, "output_tokens": 5},
-    )
-    fake_client = MagicMock()
-    # MCP path → beta.messages.create
-    fake_client.beta.messages.create.return_value = r
-    monkeypatch.setattr(
-        "token_compare.messages_runner.get_client_for_model",
-        lambda mid: fake_client,
-    )
     result = run_once(
         _scenario(), PathName.MCP,
         model="claude-4-5-sonnet", max_turns=5, timeout_s=60,
         mcp_template_path=cfg,
         sf_token={"access_token": "TOK", "instance_url": "https://x"},
     )
+
+    # The first messages.create call should advertise the proxy's tool list.
+    first_call_kwargs = fake_client.messages.create.call_args_list[0].kwargs
+    assert first_call_kwargs.get("tools") == [fake_tool]
+    # No beta header / mcp_servers param — proxy means we go through the
+    # GA endpoint just like Native does.
+    assert "mcp_servers" not in first_call_kwargs
+    assert "betas" not in first_call_kwargs
+    # The proxy should have been asked to dispatch the tool_use.
+    fake_proxy.call.assert_called_once_with("x__query", tu.input)
+    fake_proxy.close.assert_called_once()
+    # Tokens aggregate across both turns.
+    assert result.input_tokens == 130
+    assert result.output_tokens == 30
+    assert result.tool_calls == ["x__query"]
+    assert result.succeeded is True
+
+
+def test_mcp_init_failure_recorded_without_inference_call(monkeypatch, tmp_path):
+    """If the upstream MCP gateway can't even initialize, the runner
+    must record an mcp_init_failed error and skip the inference call
+    entirely so we don't waste budget."""
+    cfg = tmp_path / "sf-mcp.json"
+    cfg.write_text(
+        '{"mcpServers":{"x":{"type":"http","url":"https://example",'
+        '"headers":{"Authorization":"Bearer ${SF_ACCESS_TOKEN}"}}}}'
+    )
+    # Stub from_specs to return a proxy whose .open() raises.
+    bad_proxy = MagicMock()
+    bad_proxy.open.side_effect = RuntimeError("gateway unreachable")
+    bad_proxy.sessions = []
+    monkeypatch.setattr(
+        "token_compare.messages_runner.McpProxy.from_specs",
+        lambda specs, *, sf_access_token: bad_proxy,
+    )
+    fake_client = MagicMock()
+    monkeypatch.setattr(
+        "token_compare.messages_runner.get_client_for_model",
+        lambda mid: fake_client,
+    )
+
+    result = run_once(
+        _scenario(), PathName.MCP,
+        model="claude-4-5-sonnet", max_turns=5, timeout_s=60,
+        mcp_template_path=cfg,
+        sf_token={"access_token": "TOK", "instance_url": "https://x"},
+    )
+
     assert result.succeeded is False
-    assert "mcp_unresolved_tool_use" in (result.error or "")
+    assert "mcp_init_failed" in (result.error or "")
+    # Inference must NOT have been called when the MCP gateway is dead.
+    fake_client.messages.create.assert_not_called()
 
 
 def test_raw_json_populated_with_legacy_event_shape(monkeypatch, tmp_path):

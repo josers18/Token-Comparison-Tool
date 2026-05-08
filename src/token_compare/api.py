@@ -68,7 +68,7 @@ class AppConfig(BaseModel):
 class RunRequest(BaseModel):
     scenario_ids: list[str]
     runs_per_path: int = 3
-    model: str = "claude-opus-4-7"
+    model: str = "claude-4-5-sonnet"
     operator: str
     org_name: str
     max_turns: int = 15
@@ -83,7 +83,7 @@ class FreeformRunRequest(BaseModel):
     # Sanitized server-side so we don't accept arbitrary IDs.
     scenario_id: Optional[str] = None
     runs_per_path: int = 1
-    model: str = "claude-opus-4-7"
+    model: str = "claude-4-5-sonnet"
     operator: str = "local user"
     org_name: str = "(local org)"
     max_turns: int = 30
@@ -609,6 +609,12 @@ h1{{font-size:24px}}p{{color:#747474}}</style></head><body>
         sid = _state_to_sid.pop(state, None)
         if sid and pending.token is not None:
             await db.put_sf_token(sid, pending.token.model_dump())
+            # Send the user back to the catalog. The session cookie they
+            # arrived with is still valid; the catalog will see the SF
+            # token in /api/run requests and the Connect button will hide
+            # itself once the next preflight cycle confirms login.
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(url="/", status_code=303)
         elif sid is None:
             # State succeeded but the cookie chain was broken (e.g., user
             # finished OAuth in a different browser, or callback hit a
