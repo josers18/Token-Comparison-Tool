@@ -54,6 +54,18 @@ CREATE TABLE IF NOT EXISTS inference_audit (
   token_usage_json JSONB NOT NULL,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Pending-login rows for in-flight OAuth round-trips. Persisted
+-- (instead of in-process dict) so a dyno restart between
+-- /api/sf/login and /callback doesn't drop the PKCE verifier.
+CREATE TABLE IF NOT EXISTS pending_logins (
+  state       TEXT PRIMARY KEY,
+  session_id  TEXT NOT NULL,
+  verifier    TEXT NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS pending_logins_created_idx
+  ON pending_logins (created_at);
 """
 
 
@@ -220,3 +232,45 @@ async def insert_audit(
             "VALUES ($1,$2,$3,$4,$5,$6)",
             run_id, scenario_id, path, model, prompt_hash, json.dumps(token_usage),
         )
+
+
+# ---- Pending logins ----
+
+async def put_pending_login(*, state: str, session_id: str, verifier: str) -> None:
+    pool = await connect()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO pending_logins (state, session_id, verifier) VALUES ($1,$2,$3) "
+            "ON CONFLICT (state) DO UPDATE SET session_id=EXCLUDED.session_id, "
+            "verifier=EXCLUDED.verifier, created_at=now()",
+            state, session_id, verifier,
+        )
+
+
+async def pop_pending_login(state: str) -> Optional[dict]:
+    """Atomically look up + delete a pending login row by `state`.
+    Returns {session_id, verifier} or None if not found / expired."""
+    pool = await connect()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "DELETE FROM pending_logins WHERE state=$1 "
+            "AND created_at > now() - INTERVAL '15 minutes' "
+            "RETURNING session_id, verifier",
+            state,
+        )
+    return dict(row) if row else None
+
+
+async def prune_pending_logins() -> int:
+    """Drop pending_login rows older than 1 hour. Cheap to call from
+    startup or a heartbeat. Returns the row count deleted."""
+    pool = await connect()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "DELETE FROM pending_logins WHERE created_at < now() - INTERVAL '1 hour'"
+        )
+    # asyncpg execute returns 'DELETE N' as a string
+    try:
+        return int(result.split()[-1])
+    except (ValueError, IndexError):
+        return 0

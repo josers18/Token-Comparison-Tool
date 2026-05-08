@@ -34,6 +34,9 @@ def _stub_db(monkeypatch):
     monkeypatch.setattr(db, "create_report", _create_report)
     monkeypatch.setattr(db, "finalize_report", _noop)
     monkeypatch.setattr(db, "insert_run", _noop)
+    monkeypatch.setattr(db, "put_pending_login", _noop)
+    monkeypatch.setattr(db, "pop_pending_login", _none)
+    monkeypatch.setattr(db, "prune_pending_logins", _noop)
 
 
 @pytest.fixture

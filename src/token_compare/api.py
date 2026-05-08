@@ -26,9 +26,10 @@ from token_compare.models import Scenario, SuccessCriteria
 from token_compare.scenarios import load_all
 
 
-# Maps OAuth `state` parameter back to the session id that initiated it,
-# so /callback can drop the SF token into the right sessions row.
-_state_to_sid: dict[str, str] = {}
+# Pending OAuth round-trips (state → session_id, PKCE verifier) are
+# persisted in Postgres via db.put_pending_login / db.pop_pending_login,
+# so a dyno restart between /api/sf/login and /callback doesn't drop
+# the verifier. The previous in-memory dict is intentionally gone.
 
 
 def _load_dotenv_if_present() -> None:
@@ -545,8 +546,8 @@ def create_app(config: AppConfig) -> FastAPI:
         from token_compare import db
         from token_compare.sessions import COOKIE_NAME, sign_session_id
         from token_compare.sf_auth import (
-            SfAuthError, load_credentials_from_env,
-            _generate_pkce, _build_authorize_url, _register_pending,
+            load_credentials_from_env,
+            _generate_pkce, _build_authorize_url,
         )
         import secrets as _secrets
 
@@ -559,12 +560,14 @@ def create_app(config: AppConfig) -> FastAPI:
         verifier, challenge = _generate_pkce()
         state = _secrets.token_urlsafe(24)
         auth_url = _build_authorize_url(creds, state, challenge)
-        _register_pending(state, creds, verifier)
 
         sid, _ = await _get_or_create_sid_with_cookie(request)
-        # Always re-set the cookie on login so the browser carries it
-        # through the OAuth round-trip even if it was missing.
-        _state_to_sid[state] = sid
+        # Persist (state → session_id, verifier) in Postgres so a dyno
+        # restart between this call and /callback doesn't drop the
+        # PKCE verifier the way the in-memory dict used to.
+        await db.put_pending_login(
+            state=state, session_id=sid, verifier=verifier,
+        )
 
         resp = JSONResponse({"ok": True, "authorize_url": auth_url})
         resp.set_cookie(
@@ -626,7 +629,7 @@ def create_app(config: AppConfig) -> FastAPI:
         import html
         from token_compare import db
         from token_compare.sf_auth import (
-            SfAuthError, complete_pending_login, complete_pending_login_error,
+            SfAuthError, _exchange_code, load_credentials_from_env,
         )
 
         def page(title: str, body: str, status: int) -> HTMLResponse:
@@ -640,58 +643,59 @@ h1{{font-size:24px}}p{{color:#747474}}</style></head><body>
         if error:
             error_msg = f"{error}: {error_description or ''}"
             if state:
-                complete_pending_login_error(state, error_msg)
-                _state_to_sid.pop(state, None)
+                await db.pop_pending_login(state)  # clean up
             return page(
                 "Salesforce login failed",
                 f"{error_msg}. You can close this tab.",
                 400,
             )
         if not code or not state:
-            # Even an invalid callback can carry a `state`; clean it up so
-            # abandoned login attempts don't accumulate in _state_to_sid.
             if state:
-                _state_to_sid.pop(state, None)
+                await db.pop_pending_login(state)
             return page("Invalid callback", "Missing code or state.", 400)
-        try:
-            pending = complete_pending_login(state, code)
-        except SfAuthError as e:
-            _state_to_sid.pop(state, None)
-            return page("Salesforce login failed", str(e), 400)
-        except Exception as e:
-            _state_to_sid.pop(state, None)
-            return page("Salesforce login failed", f"unexpected error: {e}", 500)
 
-        sid = _state_to_sid.pop(state, None)
-        if sid and pending.token is not None:
-            await db.put_sf_token(sid, pending.token.model_dump())
-            # Send the user back to the catalog. The session cookie they
-            # arrived with is still valid; the catalog will see the SF
-            # token in /api/run requests and the Connect button will hide
-            # itself once the next preflight cycle confirms login.
-            from fastapi.responses import RedirectResponse
-            return RedirectResponse(url="/", status_code=303)
-        elif sid is None:
-            # State succeeded but the cookie chain was broken (e.g., user
-            # finished OAuth in a different browser, or callback hit a
-            # different dyno). The token was minted but we have no
-            # session to attach it to. Log it so the operator notices.
-            import logging
-            logging.getLogger(__name__).warning(
-                "oauth callback for state %s has no matching session; "
-                "user will need to /api/sf/login again", state[:8],
-            )
+        # Atomically claim the pending-login row from Postgres. This is
+        # restart-safe: even if the dyno that registered the state has
+        # been replaced (e.g. config-var change), the new dyno can pick
+        # up where the old one left off.
+        pending = await db.pop_pending_login(state)
+        if pending is None:
             return page(
-                "Salesforce login session lost",
-                "Your browser session didn't carry through the redirect. "
-                "Return to the app and click Connect Salesforce again.",
+                "Salesforce login failed",
+                f"no pending login for state {state!r} — it may have expired "
+                "(15-min limit) or been consumed already. Click Connect "
+                "Salesforce again to start a fresh login.",
                 400,
             )
-        return page(
-            "Salesforce login complete",
-            "You can close this tab and return to the benchmark tool.",
-            200,
+
+        creds = load_credentials_from_env()
+        if creds is None:
+            return page(
+                "Salesforce login failed",
+                "SF_CLIENT_ID / SF_CLIENT_SECRET / SF_LOGIN_URL not set on the server.",
+                500,
+            )
+
+        try:
+            tok = _exchange_code(creds, code, pending["verifier"])
+        except SfAuthError as e:
+            return page("Salesforce login failed", str(e), 400)
+        except Exception as e:
+            return page("Salesforce login failed", f"unexpected error: {e}", 500)
+
+        sid = pending["session_id"]
+        await db.put_sf_token(sid, tok.model_dump())
+        # Carry the session cookie through, in case the user landed on
+        # /callback in a tab that didn't have one.
+        from fastapi.responses import RedirectResponse
+        from token_compare.sessions import COOKIE_NAME, sign_session_id
+        resp = RedirectResponse(url="/", status_code=303)
+        resp.set_cookie(
+            COOKIE_NAME, sign_session_id(sid),
+            httponly=True, secure=True, samesite="lax",
+            max_age=60 * 60 * 24 * 30,
         )
+        return resp
 
     if config.static_dir and config.static_dir.is_dir():
         app.mount("/", StaticFiles(directory=str(config.static_dir), html=True), name="static")
