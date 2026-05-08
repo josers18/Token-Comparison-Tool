@@ -106,7 +106,7 @@ async function init() {
 }
 
 async function loadPreflight() {
-  const res = await fetch("/api/preflight");
+  const res = await fetch("/api/preflight", { cache: "no-store" });
   state.preflight = await res.json();
   const banner = $("preflight-status");
   if (state.preflight.ok) {
@@ -116,13 +116,11 @@ async function loadPreflight() {
     banner.textContent = "● preflight failed";
     banner.className = "status err";
   }
-  // On Heroku the preflight only verifies env config (Inference, Postgres,
-  // ECA, MCP template, SESSION_SECRET). The actual "is the user logged in?"
-  // signal comes from /api/run returning 401, which we surface separately.
-  // Show the Connect Salesforce button whenever the env is healthy enough
-  // to attempt a login — i.e. the ECA is configured.
-  const ecaConfigured = state.preflight?.checks?.sf_eca_configured === true;
-  $("sf-login-row").hidden = !ecaConfigured;
+  // Always show the Connect Salesforce button — preflight only knows
+  // about env config, not whether the *user* has authenticated. If the
+  // ECA isn't configured the click will surface a clear server error,
+  // which is more useful than a hidden button.
+  $("sf-login-row").hidden = false;
 }
 
 async function loadScenarios() {
@@ -178,7 +176,7 @@ async function loadModels() {
   const sel = document.getElementById("model-select");
   if (!sel) return;
   try {
-    const r = await fetch("/api/models");
+    const r = await fetch("/api/models", { cache: "no-store" });
     const { models } = await r.json();
     sel.replaceChildren();
     for (const m of (models || [])) {

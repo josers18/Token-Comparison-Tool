@@ -148,18 +148,28 @@ def create_app(config: AppConfig) -> FastAPI:
     # Track in-memory benchmark state for polling fallback
     _current_run: dict = {"active": False, "events": [], "started_at": None, "report_path": None}
 
+    # Browsers will happily cache JSON GETs that don't say otherwise, and
+    # the SPA polls these on every page load — including across deploys
+    # that may have changed the response shape (e.g. when preflight.py
+    # was rewritten for Heroku). Always send no-store on the introspective
+    # endpoints so stale dyno state never sticks in a client.
+    _NO_STORE = {"Cache-Control": "no-store"}
+
     @app.get("/api/preflight")
-    def preflight() -> dict:
-        return check_environment(mcp_config_path=config.mcp_config_path).model_dump()
+    def preflight() -> JSONResponse:
+        body = check_environment(mcp_config_path=config.mcp_config_path).model_dump()
+        return JSONResponse(body, headers=_NO_STORE)
 
     @app.get("/api/scenarios")
-    def list_scenarios() -> list[dict]:
-        return [s.model_dump() for s in load_all(config.scenarios_dir)]
+    def list_scenarios() -> JSONResponse:
+        body = [s.model_dump() for s in load_all(config.scenarios_dir)]
+        return JSONResponse(body, headers=_NO_STORE)
 
     @app.get("/api/models")
-    def list_models() -> dict:
+    def list_models() -> JSONResponse:
         from token_compare.inference_client import discover_models
-        return {"models": [m.model_id for m in discover_models()]}
+        body = {"models": [m.model_id for m in discover_models()]}
+        return JSONResponse(body, headers=_NO_STORE)
 
     def _start_benchmark_stream(
         picked_scenarios: list[Scenario],
@@ -348,14 +358,15 @@ def create_app(config: AppConfig) -> FastAPI:
         return stream
 
     @app.get("/api/run/status")
-    def run_status() -> dict:
-        return {
+    def run_status() -> JSONResponse:
+        body = {
             "active": _current_run["active"],
             "started_at": _current_run["started_at"],
             "events": _current_run["events"],
             "report_path": _current_run["report_path"],
             "freeform_scenario": _current_run.get("freeform_scenario"),
         }
+        return JSONResponse(body, headers=_NO_STORE)
 
     @app.api_route("/api/reports/latest", methods=["GET", "HEAD"])
     def latest_report(request: Request):

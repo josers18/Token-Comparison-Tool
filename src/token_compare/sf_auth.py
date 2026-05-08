@@ -25,7 +25,15 @@ from pydantic import BaseModel
 #                  path's /platform/mcp/v1/... endpoints).
 # cdp_api        — blanket Data Cloud access (covers cdp_query_api, cdp_profile_api).
 # refresh_token  — needed to mint refreshable access tokens.
-SF_OAUTH_SCOPES = "api mcp_api cdp_api refresh_token"
+#
+# Override via the SF_OAUTH_SCOPES env var if your ECA's allowed-scope
+# list differs from the default. Example: an ECA that grants `sfap_api`
+# instead of `api` would use:
+#   heroku config:set SF_OAUTH_SCOPES="sfap_api mcp_api cdp_api refresh_token"
+SF_OAUTH_SCOPES = os.environ.get(
+    "SF_OAUTH_SCOPES",
+    "api mcp_api cdp_api refresh_token",
+)
 
 # ECA-registered redirect URI. Must match exactly.
 DEFAULT_REDIRECT_URI = "http://localhost:8000/callback"
