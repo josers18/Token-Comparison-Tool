@@ -307,8 +307,14 @@ function setStepStatus(sid, cls) {
 }
 
 async function startRun() {
-  const checked = Array.from(document.querySelectorAll("#scenario-list input:checked"))
-    .map((i) => i.dataset.sid);
+  // Scope the query to per-row checkboxes; the master "select all"
+  // checkbox lives in a header row that has no data-sid and would
+  // otherwise serialize as null.
+  const checked = Array.from(document.querySelectorAll(
+    "#scenario-list li:not(.scenario-list-header) input[type=checkbox]:checked"
+  ))
+    .map((i) => i.dataset.sid)
+    .filter(Boolean);
   if (checked.length === 0) return;
   state.runsPerPath = parseInt($("runs-per-path").value, 10) || 3;
   const modelEl = document.getElementById("model-select");

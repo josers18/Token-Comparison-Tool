@@ -78,7 +78,10 @@ def _coerce_int(v, default: int) -> int:
 
 
 class RunRequest(BaseModel):
-    scenario_ids: list[str] = []
+    # The SPA's select-all logic can include the master checkbox in its
+    # query, which has no data-sid → serializes as null. Accept None
+    # entries here and filter them out in the handler.
+    scenario_ids: list[Optional[str]] = []
     runs_per_path: Optional[int] = None
     model: Optional[str] = None
     # Operator + org_name are descriptive labels stored on the report row
@@ -339,7 +342,10 @@ def create_app(config: AppConfig) -> FastAPI:
             return resp
 
         all_scenarios = load_all(config.scenarios_dir)
-        picked = [s for s in all_scenarios if s.id in set(req.scenario_ids)]
+        # Filter out None/empty entries the SPA may have submitted (e.g. a
+        # master checkbox without data-sid).
+        wanted = {sid for sid in (req.scenario_ids or []) if sid}
+        picked = [s for s in all_scenarios if s.id in wanted]
         if not picked:
             picked = all_scenarios
 
