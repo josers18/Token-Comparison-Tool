@@ -164,6 +164,27 @@ def create_app(config: AppConfig) -> FastAPI:
         from token_compare import db
         await db.close()
 
+    # Log the raw body of any 422 so we can see exactly which field
+    # the SPA mis-shaped. Uvicorn's default access log doesn't show
+    # request bodies, which makes triaging client-side serialization
+    # bugs guesswork. Always-on, but the response shape is unchanged.
+    from fastapi.exceptions import RequestValidationError
+    import logging
+    _validation_log = logging.getLogger("token_compare.validation")
+
+    @app.exception_handler(RequestValidationError)
+    async def _log_validation_error(request: Request, exc: RequestValidationError):
+        try:
+            body = await request.body()
+            preview = body.decode("utf-8", errors="replace")[:1000]
+        except Exception:
+            preview = "(could not read body)"
+        _validation_log.warning(
+            "422 on %s %s | errors=%s | body=%s",
+            request.method, request.url.path, exc.errors(), preview,
+        )
+        return JSONResponse({"detail": exc.errors()}, status_code=422)
+
     async def _get_or_create_sid_with_cookie(request: Request) -> tuple[str, Optional[tuple[str, str]]]:
         """Return (session_id, cookie_to_set_or_None).
 
