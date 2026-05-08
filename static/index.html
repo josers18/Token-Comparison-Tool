@@ -11,18 +11,49 @@
 </head>
 <body>
   <header class="app-header">
-    <button class="brand" id="brand-home" type="button" aria-label="Back to catalog">
+    <button class="brand" id="brand-home" type="button" aria-label="Back to home">
       <span class="dot"></span>
       <span class="wordmark">Token Comparison Tool</span>
       <span class="sub">Salesforce MCP vs Native</span>
     </button>
-    <div class="status" id="preflight-status">checking…</div>
+    <nav class="header-nav" aria-label="Main">
+      <a class="header-link" href="/admin" id="admin-link">Admin</a>
+      <div class="status" id="preflight-status">checking…</div>
+    </nav>
   </header>
 
   <main class="container">
     <nav class="stepper" id="stepper" aria-label="Benchmark steps"></nav>
 
-    <section id="setup-view" class="card">
+    <section id="landing-view" class="card landing">
+      <h1 class="landing-title">What would you like to do?</h1>
+      <p class="muted landing-subtitle">Compare native Salesforce REST tools against the Salesforce-hosted MCP gateway, run a one-off prompt, or revisit a past report.</p>
+      <div class="landing-cards">
+        <button class="landing-card" data-target="benchmark" type="button">
+          <span class="landing-card-icon">⚖</span>
+          <span class="landing-card-title">Run benchmark</span>
+          <span class="landing-card-desc">Run the full scenario catalog or a subset against both paths and compare token cost, latency, and tool calls.</span>
+          <span class="landing-card-cta">Start benchmark <span aria-hidden="true">→</span></span>
+        </button>
+        <button class="landing-card" data-target="freeform" type="button">
+          <span class="landing-card-icon">✎</span>
+          <span class="landing-card-title">Free-format scenario</span>
+          <span class="landing-card-desc">Write a one-off prompt and run it through both paths. Useful for quick comparisons against scenarios that aren't in the catalog yet.</span>
+          <span class="landing-card-cta">New scenario <span aria-hidden="true">→</span></span>
+        </button>
+        <button class="landing-card" data-target="reports" type="button">
+          <span class="landing-card-icon">⌛</span>
+          <span class="landing-card-title">View previous runs</span>
+          <span class="landing-card-desc">Reload a saved report in the same interface. Pick a recent benchmark or upload an <code>.md</code> / <code>.json</code> export from another machine.</span>
+          <span class="landing-card-cta">Browse reports <span aria-hidden="true">→</span></span>
+        </button>
+      </div>
+    </section>
+
+    <section id="setup-view" class="card" hidden>
+      <a class="back-link" href="#" id="setup-back-link">← Back to home</a>
+
+      <div class="setup-section" data-section="benchmark" hidden>
       <h1 class="catalog-title">Compare <em>native tools</em> to <em>MCP</em>, run by run.</h1>
       <p class="muted" id="catalog-summary">loading scenarios…</p>
       <div class="catalog-meta" id="catalog-meta"></div>
@@ -62,9 +93,11 @@
         <button class="secondary" id="sf-login-btn">Connect Salesforce</button>
         <span class="muted" id="sf-login-hint">You'll be redirected to Salesforce to authorize, then sent back here.</span>
       </div>
+      </div><!-- /setup-section[benchmark] -->
 
-      <div class="freeform">
-        <h3 class="freeform-title">Free-format scenario</h3>
+      <div class="setup-section" data-section="freeform" hidden>
+      <div class="freeform standalone">
+        <h1 class="catalog-title">Free-format scenario</h1>
         <p class="muted">Write your own prompt and run it through both paths. Useful for quick comparisons against scenarios that aren't in the catalog yet.</p>
         <label class="freeform-field">
           <span>Title <span class="freeform-optional">(optional)</span></span>
@@ -103,9 +136,11 @@
           <button class="primary" id="freeform-run-btn" disabled>Run free format <span>→</span></button>
         </div>
       </div>
+      </div><!-- /setup-section[freeform] -->
 
-      <div class="freeform load-report">
-        <h3 class="freeform-title">Load saved report</h3>
+      <div class="setup-section" data-section="reports" hidden>
+      <div class="freeform load-report standalone">
+        <h1 class="catalog-title">View previous runs</h1>
         <p class="muted">View a past benchmark in the same interface — useful for sharing or comparing against a new run. Pick a recent report from the dropdown, or upload an <code>.md</code> / <code>.json</code> report file from another machine.</p>
         <label class="freeform-field">
           <span>Recent reports</span>
@@ -122,6 +157,7 @@
           <button class="primary" id="report-load-btn" disabled>Load report <span>→</span></button>
         </div>
       </div>
+      </div><!-- /setup-section[reports] -->
     </section>
 
     <section id="progress-view" class="card" hidden>

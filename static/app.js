@@ -35,14 +35,32 @@ async function init() {
   await loadPreflight();
   await loadScenarios();
   await loadModels();
-  renderSetup();
+  renderLanding();
   $("run-btn").addEventListener("click", startRun);
   $("run-again").addEventListener("click", () => location.reload());
-  // Brand mark = "home". Returns the user to the catalog without
-  // discarding state — any in-progress run keeps streaming in the
-  // background; loaded report state stays available via the stepper.
+  // Brand mark = "home". Returns the user to the landing chooser
+  // without discarding state — any in-progress run keeps streaming
+  // in the background; loaded report state stays available via the stepper.
   const brandHome = $("brand-home");
   if (brandHome) brandHome.addEventListener("click", goHome);
+
+  // Wire the three landing cards. Each routes to the same setup-view
+  // section it always did, but only that subsection is revealed.
+  document.querySelectorAll("#landing-view .landing-card").forEach((card) => {
+    card.addEventListener("click", () => {
+      const target = card.dataset.target;  // "benchmark" | "freeform" | "reports"
+      state.active = "setup";
+      renderSetup(target);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  });
+  const setupBack = $("setup-back-link");
+  if (setupBack) {
+    setupBack.addEventListener("click", (e) => {
+      e.preventDefault();
+      goHome();
+    });
+  }
   const pdfBtn = $("export-pdf");
   if (pdfBtn) pdfBtn.addEventListener("click", exportPdf);
   const sPdfBtn = $("scenario-export-pdf");
@@ -1441,26 +1459,41 @@ async function showSummary() {
   }
 }
 
-function renderSetup() {
+function renderLanding() {
+  $("landing-view").hidden = false;
+  $("setup-view").hidden = true;
+  $("scenario-view").hidden = true;
+  $("summary-view").hidden = true;
+  $("progress-view").hidden = true;
+  // Reset which sub-section is visible inside setup-view so the next
+  // landing-card click starts fresh.
+  document.querySelectorAll("#setup-view .setup-section").forEach((n) => {
+    n.hidden = true;
+  });
+}
+
+function renderSetup(section) {
+  // section = "benchmark" | "freeform" | "reports" — which sub-card to reveal.
+  $("landing-view").hidden = true;
   $("setup-view").hidden = false;
   $("scenario-view").hidden = true;
   $("summary-view").hidden = true;
   $("progress-view").hidden = true;
+  document.querySelectorAll("#setup-view .setup-section").forEach((n) => {
+    n.hidden = section ? n.dataset.section !== section : false;
+  });
 }
 
-// Click handler for the brand mark — returns the user to the catalog
-// without tearing down any in-progress work. If a benchmark is mid-run,
-// SSE/polling continues and the user can navigate back into a scenario
-// tab from the stepper to watch its progress.
+// Click handler for the brand mark — returns the user to the home
+// chooser without tearing down any in-progress work. If a benchmark
+// is mid-run, SSE/polling continues and the user can navigate back
+// into a scenario tab from the stepper to watch its progress.
 function goHome() {
-  state.active = "setup";
-  // Clear "active" highlight on whatever step was visible.
+  state.active = "landing";
   document.querySelectorAll(".step.active").forEach((n) => {
     n.classList.remove("active");
   });
-  renderSetup();
-  // Scroll back to the top so the user lands on the catalog headline,
-  // not somewhere down by the freeform / load-report cards.
+  renderLanding();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 

@@ -160,6 +160,152 @@ html, body {
 .status.err { color: var(--crimson); }
 .status.err::before { background: var(--crimson); }
 
+/* Header right-side nav. Sits next to the status indicator. */
+.header-nav {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+}
+.header-link {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+  text-decoration: none;
+  padding: 4px 0;
+  border-bottom: 1px solid transparent;
+  transition: color 160ms ease, border-color 160ms ease;
+}
+.header-link:hover {
+  color: var(--ink);
+  border-bottom-color: var(--signal);
+}
+
+/* ═════════════════════════════════════════════════════════════
+   Landing chooser — three primary paths
+   ═════════════════════════════════════════════════════════════ */
+.card.landing {
+  /* No card chrome at this level — let the three sub-cards do the
+     visual work against the paper background. */
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 32px 0 24px;
+}
+.landing-title {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: clamp(34px, 4.6vw, 52px);
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  margin: 8px 0 14px;
+}
+.landing-subtitle {
+  max-width: 720px;
+  font-size: 16px;
+  line-height: 1.5;
+  margin: 0 0 36px;
+}
+.landing-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+.landing-card {
+  /* Reset <button> chrome. */
+  appearance: none;
+  background: var(--paper);
+  border: 1px solid var(--hair-2);
+  border-radius: var(--r-md, 12px);
+  padding: 28px 26px 24px;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 240px;
+  position: relative;
+  transition: border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+  font: inherit;
+  color: inherit;
+}
+.landing-card:hover {
+  border-color: var(--signal);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px -8px rgba(20, 20, 20, 0.18);
+}
+.landing-card:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 3px;
+}
+.landing-card-icon {
+  font-size: 22px;
+  color: var(--signal);
+  font-weight: 500;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+.landing-card-title {
+  font-family: var(--serif);
+  font-weight: 500;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  color: var(--ink);
+}
+.landing-card-desc {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink-mute);
+  flex: 1;
+}
+.landing-card-cta {
+  margin-top: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.landing-card:hover .landing-card-cta {
+  color: var(--signal);
+}
+@media (max-width: 800px) {
+  .landing-cards { grid-template-columns: 1fr; }
+}
+
+/* "← Back to home" link on the setup-view */
+.back-link {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--ink-mute);
+  text-decoration: none;
+  margin-bottom: 24px;
+  border-bottom: 1px solid transparent;
+  transition: color 160ms ease, border-color 160ms ease;
+}
+.back-link:hover {
+  color: var(--ink);
+  border-bottom-color: var(--ink-mute);
+}
+
+/* When the freeform / load-report card is shown standalone (because the
+   user clicked into it from the landing page), promote its heading to
+   match the catalog title scale rather than the secondary h3 size. */
+.freeform.standalone .catalog-title {
+  margin-bottom: 14px;
+}
+.freeform.standalone {
+  border-top: 0;
+  margin-top: 0;
+  padding-top: 0;
+}
+
 /* ═════════════════════════════════════════════════════════════
    Container + stepper (scenario tabs)
    ═════════════════════════════════════════════════════════════ */
