@@ -310,10 +310,10 @@ async function startRun() {
   const checked = Array.from(document.querySelectorAll("#scenario-list input:checked"))
     .map((i) => i.dataset.sid);
   if (checked.length === 0) return;
-  state.runsPerPath = parseInt($("runs-per-path").value, 10);
+  state.runsPerPath = parseInt($("runs-per-path").value, 10) || 3;
   const modelEl = document.getElementById("model-select");
-  state.model = modelEl ? modelEl.value : "claude-4-5-sonnet";
-  state.maxTurns = parseInt($("max-turns").value, 10);
+  state.model = (modelEl && modelEl.value) || "claude-4-5-sonnet";
+  state.maxTurns = parseInt($("max-turns").value, 10) || 30;
   for (const s of state.scenarios) {
     state.scenarioResults[s.id] = { native: [], mcp: [] };
   }

@@ -79,7 +79,7 @@ def _coerce_int(v, default: int) -> int:
 class RunRequest(BaseModel):
     scenario_ids: list[str] = []
     runs_per_path: Optional[int] = None
-    model: str = "claude-4-5-sonnet"
+    model: Optional[str] = None
     # Operator + org_name are descriptive labels stored on the report row
     # only — no semantic dependence. Default to placeholders so a
     # request that forgets to include them doesn't 422; the SPA sends
@@ -98,6 +98,9 @@ class RunRequest(BaseModel):
     def resolved_timeout_s(self) -> int:
         return _coerce_int(self.timeout_s, 300)
 
+    def resolved_model(self) -> str:
+        return self.model or "claude-4-5-sonnet"
+
 
 class FreeformRunRequest(BaseModel):
     prompt: str
@@ -107,7 +110,7 @@ class FreeformRunRequest(BaseModel):
     # Sanitized server-side so we don't accept arbitrary IDs.
     scenario_id: Optional[str] = None
     runs_per_path: Optional[int] = None
-    model: str = "claude-4-5-sonnet"
+    model: Optional[str] = None
     operator: str = "local user"
     org_name: str = "(local org)"
     max_turns: Optional[int] = None
@@ -115,6 +118,9 @@ class FreeformRunRequest(BaseModel):
 
     def resolved_runs_per_path(self) -> int:
         return _coerce_int(self.runs_per_path, 1)
+
+    def resolved_model(self) -> str:
+        return self.model or "claude-4-5-sonnet"
 
     def resolved_max_turns(self) -> int:
         return _coerce_int(self.max_turns, 30)
@@ -315,12 +321,13 @@ def create_app(config: AppConfig) -> FastAPI:
         if not picked:
             picked = all_scenarios
 
+        model = req.resolved_model()
         report_id = await db.create_report(
-            model=req.model, operator=req.operator, org_name=req.org_name,
+            model=model, operator=req.operator, org_name=req.org_name,
         )
 
         options = BenchmarkOptions(
-            model=req.model,
+            model=model,
             max_turns=req.resolved_max_turns(),
             timeout_s=req.resolved_timeout_s(),
             runs_per_path=req.resolved_runs_per_path(),
@@ -372,12 +379,13 @@ def create_app(config: AppConfig) -> FastAPI:
             success_criteria=SuccessCriteria(),
         )
 
+        model = req.resolved_model()
         report_id = await db.create_report(
-            model=req.model, operator=req.operator, org_name=req.org_name,
+            model=model, operator=req.operator, org_name=req.org_name,
         )
 
         options = BenchmarkOptions(
-            model=req.model,
+            model=model,
             max_turns=req.resolved_max_turns(),
             timeout_s=req.resolved_timeout_s(),
             runs_per_path=req.resolved_runs_per_path(),
