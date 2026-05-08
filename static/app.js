@@ -4,11 +4,18 @@ const state = {
   preflight: null,
   scenarios: [],
   runsPerPath: 3,
-  model: "claude-opus-4-7",
+  model: "claude-4-5-sonnet",
   scenarioResults: {},   // { [sid]: { native: RunResult[], mcp: RunResult[] } }
   charts: {},
   reportPath: null,
   active: "setup",
+  // Reports analytics view state. Populated by loadReports(); the
+  // table re-renders on filter/sort changes from this cache without
+  // re-fetching.
+  reports: [],
+  reportsKpis: {},
+  reportsSortKey: "started_at",
+  reportsSortDir: "desc",
 };
 
 let runStartTime = null;
@@ -88,6 +95,9 @@ async function init() {
       const target = card.dataset.target;  // "benchmark" | "freeform" | "reports"
       state.active = "setup";
       renderSetup(target);
+      // The reports analytics view fetches its data on demand so we
+      // don't pay for the JSONB hydration on every page load.
+      if (target === "reports") loadReports();
       window.scrollTo({ top: 0, behavior: "smooth" });
     });
   });
@@ -115,26 +125,48 @@ async function init() {
     ffBtn.addEventListener("click", startFreeformRun);
   }
 
-  // Load saved report controls
-  const loadBtn = $("report-load-btn");
-  const reportPick = $("report-pick");
-  const reportUpload = $("report-upload");
-  if (loadBtn && reportPick && reportUpload) {
-    const updateLoadEnabled = () => {
-      loadBtn.disabled = !reportPick.value && !reportUpload.files?.length;
-    };
-    // Picking from the dropdown clears the upload, and vice versa — only
-    // one source at a time keeps the load action unambiguous.
-    reportPick.addEventListener("change", () => {
-      if (reportPick.value) reportUpload.value = "";
-      updateLoadEnabled();
+  // Reports & analytics — wire filters, sortable columns, file-upload
+  // import. The actual table is rendered by renderReportsTable() each
+  // time the data changes; this just attaches the event handlers.
+  if ($("reports-filter-kind")) {
+    $("reports-filter-kind").addEventListener("change", renderReportsTable);
+    $("reports-filter-model").addEventListener("change", renderReportsTable);
+    $("reports-filter-search").addEventListener("input", renderReportsTable);
+    document.querySelectorAll(".reports-table th[data-sort]").forEach((th) => {
+      th.addEventListener("click", () => {
+        const col = th.dataset.sort;
+        if (state.reportsSortKey === col) {
+          state.reportsSortDir = state.reportsSortDir === "asc" ? "desc" : "asc";
+        } else {
+          state.reportsSortKey = col;
+          state.reportsSortDir = "desc";
+        }
+        renderReportsTable();
+      });
     });
-    reportUpload.addEventListener("change", () => {
-      if (reportUpload.files?.length) reportPick.value = "";
-      updateLoadEnabled();
-    });
-    loadBtn.addEventListener("click", loadSelectedReport);
-    populateReportPicker();
+    const reportUpload = $("report-upload");
+    if (reportUpload) {
+      reportUpload.addEventListener("change", async () => {
+        const f = reportUpload.files && reportUpload.files[0];
+        if (!f) return;
+        const fd = new FormData();
+        fd.append("file", f);
+        try {
+          const r = await fetch("/api/reports/load", { method: "POST", body: fd });
+          if (!r.ok) {
+            const body = await r.json().catch(() => ({}));
+            alert("Upload failed: " + (body.error || r.status));
+            return;
+          }
+          const body = await r.json();
+          openLoadedReport(body);
+        } catch (e) {
+          alert("Upload failed: " + e.message);
+        } finally {
+          reportUpload.value = "";
+        }
+      });
+    }
   }
   $("sf-login-btn").addEventListener("click", async () => {
     const btn = $("sf-login-btn");
@@ -387,6 +419,7 @@ async function startRun() {
 
   $("setup-view").hidden = true;
   $("progress-view").hidden = false;
+  setStepperVisible(true);  // run is starting → stepper relevant
 
   const body = {
     scenario_ids: checked,
@@ -494,6 +527,7 @@ async function startFreeformRun() {
 
   $("setup-view").hidden = true;
   $("progress-view").hidden = false;
+  setStepperVisible(true);  // freeform run starting → stepper relevant
 
   const body = {
     prompt,
@@ -531,81 +565,220 @@ async function startFreeformRun() {
   }
 }
 
-// Populate the recent-reports dropdown from the server's reports/ directory.
-async function populateReportPicker() {
-  const sel = $("report-pick");
-  if (!sel) return;
+// Reports & analytics page — fetch the list once, then re-render the
+// table on filter/sort changes without refetching. KPIs come from the
+// same endpoint so the tile strip stays in sync with whatever's filtered.
+async function loadReports() {
+  const tbody = $("reports-tbody");
+  if (!tbody) return;
+  tbody.replaceChildren();
+  tbody.appendChild(
+    el("tr", {}, el("td", { attrs: { colspan: "9" }, className: "muted reports-empty", text: "Loading…" })),
+  );
   try {
-    const res = await fetch("/api/reports");
-    if (!res.ok) return;
+    const res = await fetch("/api/reports?limit=100", { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const body = await res.json();
-    sel.replaceChildren(
-      el("option", { attrs: { value: "" }, text: "(none — upload a file instead)" }),
-    );
-    for (const r of body.reports || []) {
-      // mtime → "May 6 · 16:38" so the user can spot the report they want
-      let label = r.name;
-      try {
-        const dt = new Date(r.mtime_iso);
-        const month = dt.toLocaleString("en-US", { month: "short" });
-        const day = dt.getDate();
-        const time = dt.toTimeString().slice(0, 5);
-        const sizeKb = Math.round((r.size_bytes || 0) / 1024);
-        label = `${r.name}  ·  ${month} ${day}, ${time}  ·  ${sizeKb} KB${r.has_json ? "" : " (md only)"}`;
-      } catch (_) {}
-      sel.appendChild(el("option", { attrs: { value: r.name }, text: label }));
+    state.reports = body.reports || [];
+    state.reportsKpis = body.kpis || {};
+    state.reportsSortKey = state.reportsSortKey || "started_at";
+    state.reportsSortDir = state.reportsSortDir || "desc";
+    // Populate the model filter from the actual report set.
+    const sel = $("reports-filter-model");
+    const models = Array.from(new Set(state.reports.map((r) => r.model).filter(Boolean))).sort();
+    sel.replaceChildren(el("option", { attrs: { value: "" }, text: "All" }));
+    for (const m of models) {
+      sel.appendChild(el("option", { attrs: { value: m }, text: m }));
     }
-  } catch (_) { /* silent */ }
+    renderReportsKpis();
+    renderReportsTable();
+  } catch (e) {
+    tbody.replaceChildren(
+      el("tr", {}, el("td", { attrs: { colspan: "9" }, className: "muted reports-empty",
+        text: "Failed to load reports: " + e.message })),
+    );
+  }
 }
 
-// Load whichever source the user picked: the dropdown name, or the upload.
-async function loadSelectedReport() {
-  const btn = $("report-load-btn");
-  const sel = $("report-pick");
-  const upload = $("report-upload");
-  const hint = $("report-load-hint");
-  if (!btn || !sel || !upload) return;
+function renderReportsKpis() {
+  const k = state.reportsKpis || {};
+  $("kpi-total-runs").textContent = (k.total_runs ?? 0).toString();
+  $("kpi-native-cost").textContent = "$" + (k.total_native_cost ?? 0).toFixed(2);
+  $("kpi-mcp-cost").textContent = "$" + (k.total_mcp_cost ?? 0).toFixed(2);
+  $("kpi-avg-ratio").textContent = k.avg_ratio == null ? "—" : k.avg_ratio.toFixed(2) + "×";
+}
 
-  btn.disabled = true;
-  if (hint) hint.textContent = "Loading…";
+function renderReportsTable() {
+  const tbody = $("reports-tbody");
+  if (!tbody) return;
+  const kindFilter = $("reports-filter-kind").value;
+  const modelFilter = $("reports-filter-model").value;
+  const search = ($("reports-filter-search").value || "").trim().toLowerCase();
+  const sortKey = state.reportsSortKey || "started_at";
+  const sortDir = state.reportsSortDir || "desc";
 
-  try {
-    let summary;
-    if (sel.value) {
-      // Server-side: load by name.
-      const res = await fetch(`/api/reports/${encodeURIComponent(sel.value)}/data`);
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
-      summary = body;
-    } else if (upload.files && upload.files[0]) {
-      // Client upload: POST as multipart/form-data.
-      const fd = new FormData();
-      fd.append("file", upload.files[0]);
-      const res = await fetch("/api/reports/load", { method: "POST", body: fd });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
-      summary = body;
-    } else {
-      throw new Error("nothing selected");
+  let rows = (state.reports || []).filter((r) => {
+    if (kindFilter && r.kind !== kindFilter) return false;
+    if (modelFilter && r.model !== modelFilter) return false;
+    if (search) {
+      const hay = [r.name, r.model, r.operator, r.org_name].filter(Boolean).join(" ").toLowerCase();
+      if (!hay.includes(search)) return false;
     }
+    return true;
+  });
+  rows.sort((a, b) => {
+    let av = a[sortKey], bv = b[sortKey];
+    // String compare for non-numeric columns; nulls last.
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    if (typeof av === "number" && typeof bv === "number") {
+      return sortDir === "asc" ? av - bv : bv - av;
+    }
+    av = String(av); bv = String(bv);
+    return sortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
+  });
 
-    // The backend hydrated _current_run for us. Pull the data and route the
-    // user to the right view: scenario detail if there's only one scenario
-    // (most freeform/single-run reports), otherwise the summary deck.
-    await registerLoadedScenarios(summary);
+  tbody.replaceChildren();
+  if (rows.length === 0) {
+    tbody.appendChild(el("tr", {},
+      el("td", { attrs: { colspan: "9" }, className: "muted reports-empty",
+        text: "No reports match these filters." })));
+    return;
+  }
+
+  for (const r of rows) {
+    const tr = document.createElement("tr");
+    tr.appendChild(td(formatReportTime(r.started_at)));
+    tr.appendChild(td(r.kind ? kindPill(r.kind) : "—"));
+    tr.appendChild(td(r.model || "—"));
+    tr.appendChild(td(String(r.scenario_count || 0), "col-num"));
+    tr.appendChild(td(String(r.runs_per_path || 0), "col-num"));
+    tr.appendChild(td("$" + (r.native_cost || 0).toFixed(3), "col-num"));
+    tr.appendChild(td("$" + (r.mcp_cost || 0).toFixed(3), "col-num"));
+    const ratioCell = document.createElement("td");
+    ratioCell.className = "col-num";
+    if (r.mcp_native_ratio == null) {
+      ratioCell.textContent = "—";
+    } else {
+      ratioCell.textContent = r.mcp_native_ratio.toFixed(2) + "×";
+      ratioCell.classList.add(r.mcp_native_ratio > 1 ? "ratio-native-wins" : "ratio-mcp-wins");
+    }
+    tr.appendChild(ratioCell);
+    tr.appendChild(reportActionsCell(r));
+
+    // Click anywhere in the row except the actions cell → load the report.
+    tr.addEventListener("click", (e) => {
+      if (e.target.closest(".reports-actions-cell")) return;
+      loadReportById(r.name);
+    });
+    tbody.appendChild(tr);
+  }
+}
+
+function td(content, cls) {
+  const t = document.createElement("td");
+  if (cls) t.className = cls;
+  if (content == null) {
+    t.textContent = "—";
+  } else if (content instanceof Node) {
+    t.appendChild(content);
+  } else {
+    t.textContent = String(content);
+  }
+  return t;
+}
+
+function kindPill(kind) {
+  return el("span", { className: "kind-pill kind-" + kind, text: kind });
+}
+
+function formatReportTime(iso) {
+  if (!iso) return "—";
+  try {
+    const dt = new Date(iso);
+    const month = dt.toLocaleString("en-US", { month: "short" });
+    const day = dt.getDate();
+    const time = dt.toTimeString().slice(0, 5);
+    return `${month} ${day} · ${time}`;
+  } catch (_) { return iso; }
+}
+
+function reportActionsCell(report) {
+  const cell = document.createElement("td");
+  cell.className = "reports-actions-cell";
+  const btn = document.createElement("button");
+  btn.className = "reports-actions-btn";
+  btn.textContent = "Actions ▾";
+  cell.appendChild(btn);
+
+  let menu = null;
+  function closeMenu() {
+    if (menu) { menu.remove(); menu = null; }
+    document.removeEventListener("click", onDocClick);
+  }
+  function onDocClick(e) {
+    if (menu && !cell.contains(e.target)) closeMenu();
+  }
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (menu) { closeMenu(); return; }
+    menu = document.createElement("div");
+    menu.className = "reports-actions-menu";
+    const open = document.createElement("button");
+    open.textContent = "Open in app";
+    open.addEventListener("click", (ev) => { ev.stopPropagation(); closeMenu(); loadReportById(report.name); });
+    menu.appendChild(open);
+    const dlMd = document.createElement("a");
+    dlMd.textContent = "Download Markdown";
+    dlMd.href = `/api/reports/${encodeURIComponent(report.name)}/markdown`;
+    dlMd.setAttribute("download", report.name + ".md");
+    dlMd.addEventListener("click", () => closeMenu());
+    menu.appendChild(dlMd);
+    const dlPdf = document.createElement("button");
+    dlPdf.textContent = "Download PDF";
+    dlPdf.addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      closeMenu();
+      // PDF is rendered client-side via window.print. To make sure the
+      // print captures *this* report, load it into the SPA first, then
+      // export. exportPdf already iterates every scenario tab + the summary.
+      await loadReportById(report.name);
+      // Give the SPA a tick to render before opening the print dialog.
+      setTimeout(() => exportPdf(), 200);
+    });
+    menu.appendChild(dlPdf);
+    cell.appendChild(menu);
+    document.addEventListener("click", onDocClick);
+  });
+  return cell;
+}
+
+async function loadReportById(reportId) {
+  try {
+    const res = await fetch(`/api/reports/${encodeURIComponent(reportId)}/data`, { cache: "no-store" });
+    const body = await res.json();
+    if (!res.ok) {
+      alert("Could not load report: " + (body.error || res.status));
+      return;
+    }
+    openLoadedReport(body);
+  } catch (e) {
+    alert("Could not load report: " + e.message);
+  }
+}
+
+function openLoadedReport(summary) {
+  // Same routing as the old load button: register the scenario ids
+  // into state.scenarios, then go to the summary view (or the single
+  // scenario detail if it's a one-off).
+  registerLoadedScenarios(summary).then(() => {
     if (summary.scenario_count === 1 && summary.scenario_ids?.length === 1) {
       showScenario(summary.scenario_ids[0]);
     } else {
       showSummary();
     }
-  } catch (e) {
-    if (hint) hint.textContent = "Load failed: " + (e?.message || e);
-    btn.disabled = false;
-    return;
-  } finally {
-    btn.disabled = false;
-    if (hint && hint.textContent === "Loading…") hint.textContent = "Loaded.";
-  }
+  });
 }
 
 // After a load, register every scenario id from the report into state.scenarios
@@ -749,6 +922,7 @@ function showScenario(sid) {
   $("setup-view").hidden = true;
   $("summary-view").hidden = true;
   $("scenario-view").hidden = false;
+  setStepperVisible(true);  // viewing a scenario → stepper relevant
   renderScenario(sid);
 }
 
@@ -1298,6 +1472,7 @@ async function showSummary() {
   $("setup-view").hidden = true;
   $("scenario-view").hidden = true;
   $("summary-view").hidden = false;
+  setStepperVisible(true);  // summary view → stepper still relevant
 
   let analysis;
   try {
@@ -1511,6 +1686,14 @@ async function checkSfLoginStatus() {
   }
 }
 
+function setStepperVisible(visible) {
+  // The stepper (s01 / s02 / … / Summary chips) only makes sense when
+  // the user is inside the benchmark flow itself — running, watching a
+  // scenario detail, or on the summary. Everywhere else (landing,
+  // freeform, reports, login splash), it's confusing chrome.
+  document.body.classList.toggle("has-stepper", !!visible);
+}
+
 function renderLogin() {
   state.active = "login";
   $("login-view").hidden = false;
@@ -1519,6 +1702,7 @@ function renderLogin() {
   $("scenario-view").hidden = true;
   $("summary-view").hidden = true;
   $("progress-view").hidden = true;
+  setStepperVisible(false);
 }
 
 function renderLanding() {
@@ -1534,6 +1718,7 @@ function renderLanding() {
   document.querySelectorAll("#setup-view .setup-section").forEach((n) => {
     n.hidden = true;
   });
+  setStepperVisible(false);
 }
 
 function renderSetup(section) {
@@ -1547,6 +1732,9 @@ function renderSetup(section) {
   document.querySelectorAll("#setup-view .setup-section").forEach((n) => {
     n.hidden = section ? n.dataset.section !== section : false;
   });
+  // Show the stepper only on the benchmark sub-section. Freeform and
+  // reports are conceptually separate flows and don't need it.
+  setStepperVisible(section === "benchmark");
 }
 
 // Click handler for the brand mark — returns the user to the home

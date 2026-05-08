@@ -160,6 +160,58 @@ def _event_to_dict(e: ProgressEvent) -> dict:
     return d
 
 
+def _payload_to_stats(payload: dict) -> dict:
+    """Derive the per-row analytics stats the reports table renders:
+    kind, scenario_count, runs_per_path, native_cost, mcp_cost,
+    mcp_native_ratio. Robust against partial / older payload shapes
+    (returns zeros where the data isn't there)."""
+    if not isinstance(payload, dict):
+        return {}
+    scenarios = payload.get("scenarios") or []
+    runs_per_path = payload.get("runs_per_path") or 0
+    native_cost = 0.0
+    mcp_cost = 0.0
+    has_freeform = False
+    for s in scenarios:
+        if not isinstance(s, dict):
+            continue
+        sid = s.get("scenario_id") or ""
+        if sid.startswith("freeform_"):
+            has_freeform = True
+        for r in (s.get("native_runs") or []):
+            try:
+                native_cost += float(r.get("total_cost_usd") or 0)
+            except (TypeError, ValueError):
+                pass
+        for r in (s.get("mcp_runs") or []):
+            try:
+                mcp_cost += float(r.get("total_cost_usd") or 0)
+            except (TypeError, ValueError):
+                pass
+    ratio = (mcp_cost / native_cost) if native_cost > 0 else None
+    # 'freeform' if every scenario in the payload is a freeform_*; 'mixed'
+    # if both kinds present; 'catalog' otherwise. The common case is
+    # one or the other.
+    only_freeform = has_freeform and all(
+        (s.get("scenario_id") or "").startswith("freeform_")
+        for s in scenarios if isinstance(s, dict)
+    )
+    if only_freeform:
+        kind = "freeform"
+    elif has_freeform:
+        kind = "mixed"
+    else:
+        kind = "catalog"
+    return {
+        "kind": kind,
+        "scenario_count": len(scenarios),
+        "runs_per_path": runs_per_path,
+        "native_cost": round(native_cost, 6),
+        "mcp_cost": round(mcp_cost, 6),
+        "mcp_native_ratio": round(ratio, 3) if ratio is not None else None,
+    }
+
+
 def _prune_reports(reports_dir: Path, retain: int) -> None:
     files = sorted(reports_dir.glob("benchmark-*.md"),
                    key=lambda p: p.stat().st_mtime, reverse=True)
@@ -698,27 +750,66 @@ def create_app(config: AppConfig) -> FastAPI:
         return JSONResponse(analysis.model_dump(), headers=_NO_STORE)
 
     @app.get("/api/reports")
-    async def list_saved_reports() -> dict:
+    async def list_saved_reports(limit: int = 50) -> JSONResponse:
+        """List saved reports newest-first with derived per-row stats
+        the analytics view needs: kind, scenario_count, runs_per_path,
+        native_cost, mcp_cost, mcp_native_ratio. Pulls payload_json once
+        per row server-side instead of forcing the SPA to do N+1 fetches."""
         from token_compare import db
         from datetime import datetime
-        rows = await db.list_reports(limit=10)
+        # Cap so a runaway client can't blow up the dyno.
+        limit = max(1, min(int(limit or 50), 200))
+        rows = await db.list_reports(limit=limit)
+        # We need payload_json for the stats; pull each by id. The
+        # full-list query intentionally doesn't include the JSONB to
+        # keep that endpoint cheap, so we hydrate here. Cheap given the
+        # cap above and Postgres' jsonb storage.
         reports = []
         for r in rows:
             started_at = r.get("started_at")
             if isinstance(started_at, datetime):
                 started_at = started_at.isoformat()
-            elif isinstance(started_at, str):
-                pass  # already a string
-            else:
+            elif not isinstance(started_at, str):
                 started_at = None
+            finished_at = r.get("finished_at")
+            if isinstance(finished_at, datetime):
+                finished_at = finished_at.isoformat()
+            elif not isinstance(finished_at, str):
+                finished_at = None
+
+            full = await db.get_report(r["id"])
+            payload = (full or {}).get("payload_json")
+            stats = _payload_to_stats(payload) if payload else {}
             reports.append({
                 "name": r["id"],
                 "started_at": started_at,
+                "finished_at": finished_at,
+                "finalized": bool(payload),
                 "model": r.get("model"),
                 "operator": r.get("operator"),
                 "org_name": r.get("org_name"),
+                **stats,
             })
-        return {"reports": reports}
+        # Aggregate KPIs across the returned set so the SPA's tile
+        # strip doesn't have to recompute over every row.
+        finalized = [r for r in reports if r["finalized"]]
+        kpis = {
+            "total_runs": len(reports),
+            "total_finalized": len(finalized),
+            "total_native_cost": round(sum(r.get("native_cost") or 0 for r in finalized), 6),
+            "total_mcp_cost": round(sum(r.get("mcp_cost") or 0 for r in finalized), 6),
+            "avg_ratio": (
+                round(
+                    sum(r["mcp_native_ratio"] for r in finalized
+                        if r.get("mcp_native_ratio") is not None) /
+                    max(1, sum(1 for r in finalized if r.get("mcp_native_ratio") is not None)),
+                    3,
+                )
+                if any(r.get("mcp_native_ratio") is not None for r in finalized)
+                else None
+            ),
+        }
+        return JSONResponse({"reports": reports, "kpis": kpis}, headers=_NO_STORE)
 
     @app.get("/api/reports/{report_id}/data")
     async def load_saved_report(report_id: str):
@@ -729,6 +820,46 @@ def create_app(config: AppConfig) -> FastAPI:
         from token_compare.models import BenchmarkResult
         result = BenchmarkResult.model_validate(rec["payload_json"])
         return _hydrate_from_result(result, source=report_id)
+
+    @app.get("/api/reports/{report_id}/markdown")
+    async def download_report_markdown(report_id: str):
+        """Render a saved report as Markdown and stream it as a download.
+        Used by the reports table's 'Download Markdown' action."""
+        from token_compare import db
+        from io import StringIO
+        rec = await db.get_report(report_id)
+        if not rec or not rec.get("payload_json"):
+            return JSONResponse({"error": "report not found"}, status_code=404)
+        from token_compare.models import BenchmarkResult
+        result = BenchmarkResult.model_validate(rec["payload_json"])
+        # Resolve scenario metadata (title/category/difficulty) for the
+        # writer. Same path as the live-run report writer uses.
+        all_db_scenarios = await db.list_scenarios(include_inactive=True)
+        all_scenarios = [
+            Scenario(
+                id=s["id"], title=s["title"], category=s["category"],
+                difficulty=s["difficulty"], prompt=s["prompt"],
+                expected_operations=s.get("expected_operations") or [],
+                success_criteria=SuccessCriteria.model_validate(
+                    s.get("success_criteria_json") or {"must_contain": []}
+                ),
+                notes=s.get("notes", "") or "",
+            )
+            for s in all_db_scenarios
+        ]
+        # write_markdown writes to a Path; render to a StringIO buffer
+        # via the same internal helpers.
+        from token_compare.report import _render_markdown
+        text = _render_markdown(result, scenarios=all_scenarios)
+        filename = f"{report_id}.md"
+        return Response(
+            content=text,
+            media_type="text/markdown; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                **_NO_STORE,
+            },
+        )
 
     @app.post("/api/reports/load")
     async def upload_and_load_report(file: UploadFile = File(...)) -> dict:

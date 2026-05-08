@@ -147,24 +147,61 @@
       </div><!-- /setup-section[freeform] -->
 
       <div class="setup-section" data-section="reports" hidden>
-      <div class="freeform load-report standalone">
-        <h1 class="catalog-title">View previous runs</h1>
-        <p class="muted">View a past benchmark in the same interface — useful for sharing or comparing against a new run. Pick a recent report from the dropdown, or upload an <code>.md</code> / <code>.json</code> report file from another machine.</p>
-        <label class="freeform-field">
-          <span>Recent reports</span>
-          <select id="report-pick">
-            <option value="">(none — upload a file instead)</option>
-          </select>
-        </label>
-        <label class="freeform-field">
-          <span>Or upload a file</span>
-          <input type="file" id="report-upload" accept=".md,.json,application/json,text/markdown">
-        </label>
-        <div class="freeform-actions">
-          <span class="muted" id="report-load-hint">Loaded reports are read-only; nothing on disk changes.</span>
-          <button class="primary" id="report-load-btn" disabled>Load report <span>→</span></button>
+        <h1 class="catalog-title">Reports &amp; analytics</h1>
+        <p class="muted">Aggregate spend and runs across every benchmark. Click a row to load that report into the verdict / summary / trace views.</p>
+
+        <div class="kpi-strip" id="reports-kpis">
+          <div class="kpi"><div class="kpi-label">Total runs</div><div class="kpi-value" id="kpi-total-runs">—</div></div>
+          <div class="kpi"><div class="kpi-label">Native spend</div><div class="kpi-value" id="kpi-native-cost">—</div></div>
+          <div class="kpi"><div class="kpi-label">MCP spend</div><div class="kpi-value" id="kpi-mcp-cost">—</div></div>
+          <div class="kpi"><div class="kpi-label">Avg MCP/Native</div><div class="kpi-value" id="kpi-avg-ratio">—</div></div>
         </div>
-      </div>
+
+        <div class="reports-toolbar">
+          <label class="reports-filter">
+            <span>Kind</span>
+            <select id="reports-filter-kind">
+              <option value="">All</option>
+              <option value="catalog">Catalog</option>
+              <option value="freeform">Freeform</option>
+              <option value="mixed">Mixed</option>
+            </select>
+          </label>
+          <label class="reports-filter">
+            <span>Model</span>
+            <select id="reports-filter-model">
+              <option value="">All</option>
+            </select>
+          </label>
+          <label class="reports-filter reports-filter-search">
+            <span>Search</span>
+            <input type="text" id="reports-filter-search" placeholder="report id, operator, org…">
+          </label>
+          <div class="reports-toolbar-spacer"></div>
+          <label class="reports-filter">
+            <span>Or upload a file</span>
+            <input type="file" id="report-upload" accept=".md,.json,application/json,text/markdown">
+          </label>
+        </div>
+
+        <table class="reports-table">
+          <thead>
+            <tr>
+              <th data-sort="started_at">Started ▾</th>
+              <th>Kind</th>
+              <th data-sort="model">Model</th>
+              <th data-sort="scenario_count">Scenarios</th>
+              <th data-sort="runs_per_path">Runs/path</th>
+              <th data-sort="native_cost">Native</th>
+              <th data-sort="mcp_cost">MCP</th>
+              <th data-sort="mcp_native_ratio">Ratio</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="reports-tbody">
+            <tr><td colspan="9" class="muted reports-empty">Loading…</td></tr>
+          </tbody>
+        </table>
       </div><!-- /setup-section[reports] -->
     </section>
 

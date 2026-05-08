@@ -379,7 +379,12 @@ def test_summary_endpoint_returns_analysis(tmp_path, monkeypatch):
 def test_list_reports_empty(client):
     r = client.get("/api/reports")
     assert r.status_code == 200
-    assert r.json() == {"reports": []}
+    body = r.json()
+    assert body["reports"] == []
+    # The endpoint always emits a KPI strip, even for the empty case;
+    # the SPA's analytics view can render zeroes without a special path.
+    assert body["kpis"]["total_runs"] == 0
+    assert body["kpis"]["total_finalized"] == 0
 
 
 def test_list_and_load_report(client, tmp_path, monkeypatch):

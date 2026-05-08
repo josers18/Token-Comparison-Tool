@@ -20,6 +20,20 @@ def write_markdown(
     *,
     scenarios: list[Scenario] | None = None,
 ) -> None:
+    """Render the benchmark as Markdown and write it to disk."""
+    text = _render_markdown(result, scenarios=scenarios or [])
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    Path(path).write_text(text)
+
+
+def _render_markdown(
+    result: BenchmarkResult,
+    *,
+    scenarios: list[Scenario] | None = None,
+) -> str:
+    """Pure function: result + scenarios → markdown string. Used by
+    write_markdown (disk) and the /api/reports/{id}/markdown endpoint
+    (HTTP download)."""
     scenarios = scenarios or []
     by_id = {s.id: s for s in scenarios}
     difficulty_by_id = {s.id: s.difficulty for s in scenarios}
@@ -124,8 +138,7 @@ def write_markdown(
         for i, r in enumerate(sr.mcp_runs, start=1):
             out.extend(_render_run_details("MCP", i, r))
 
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    Path(path).write_text("\n".join(out))
+    return "\n".join(out)
 
 
 def _summarize_tool_calls(runs) -> str:
