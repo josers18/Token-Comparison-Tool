@@ -22,16 +22,10 @@
   </header>
 
   <main class="container">
-    <section id="admin-gate" class="card login-splash">
-      <h1 class="login-title">Admin token</h1>
-      <p class="login-subtitle">This page edits the scenario catalog. Paste the token from <code>heroku config:get ADMIN_TOKEN</code>; it'll be remembered in this browser so you only have to enter it once.</p>
-      <div class="freeform-field">
-        <label for="admin-token-input">Token</label>
-        <input type="password" id="admin-token-input" placeholder="VvYizez5L_…" autocomplete="off">
-      </div>
-      <button class="primary" id="admin-token-submit">Unlock <span aria-hidden="true">→</span></button>
-      <p class="muted login-hint" id="admin-token-hint">The token is only stored in this browser's localStorage; it is not sent anywhere except as an Authorization header on admin API calls.</p>
-      <p class="muted login-error" id="admin-token-error" hidden></p>
+    <section id="admin-gate" class="card login-splash" hidden>
+      <h1 class="login-title">Sign in first</h1>
+      <p class="login-subtitle">Editing the scenario catalog requires a Salesforce-authenticated session. You'll be sent to the home page to sign in, then come back here.</p>
+      <a class="primary login-cta" href="/">Go to login <span aria-hidden="true">→</span></a>
     </section>
 
     <section id="admin-view" class="card" hidden>
@@ -41,7 +35,6 @@
       <div class="admin-actions">
         <button class="primary" id="admin-new-btn">+ New scenario</button>
         <button class="ghost" id="admin-show-inactive-btn">Show inactive</button>
-        <button class="ghost" id="admin-logout-btn">Forget token</button>
       </div>
 
       <table class="admin-table">
@@ -128,24 +121,11 @@
 
   <script>
     (function () {
-      const TOKEN_KEY = "tct_admin_token";
       const $ = (id) => document.getElementById(id);
 
-      function getToken() { return localStorage.getItem(TOKEN_KEY) || ""; }
-      function setToken(t) { localStorage.setItem(TOKEN_KEY, t); }
-      function clearToken() { localStorage.removeItem(TOKEN_KEY); }
-
-      function authHeaders() {
-        return { "Authorization": "Bearer " + getToken() };
-      }
-
-      async function probeToken(token) {
-        const r = await fetch("/api/admin/scenarios", {
-          headers: { "Authorization": "Bearer " + token },
-          cache: "no-store",
-        });
-        return r.status;
-      }
+      // Auth model: same browser session that completed Salesforce
+      // OAuth on / has admin access here. Cookie travels automatically;
+      // no extra Authorization header needed.
 
       function showGate() {
         $("admin-gate").hidden = false;
@@ -156,37 +136,6 @@
         $("admin-view").hidden = false;
         loadCatalog();
       }
-
-      $("admin-token-submit").addEventListener("click", async () => {
-        const t = $("admin-token-input").value.trim();
-        $("admin-token-error").hidden = true;
-        if (!t) {
-          $("admin-token-error").textContent = "Token is empty.";
-          $("admin-token-error").hidden = false;
-          return;
-        }
-        const status = await probeToken(t);
-        if (status === 200) {
-          setToken(t);
-          showCatalog();
-        } else if (status === 401) {
-          $("admin-token-error").textContent = "Token rejected by the server.";
-          $("admin-token-error").hidden = false;
-        } else if (status === 503) {
-          $("admin-token-error").textContent =
-            "Admin endpoints are disabled (ADMIN_TOKEN not set on the server).";
-          $("admin-token-error").hidden = false;
-        } else {
-          $("admin-token-error").textContent =
-            "Unexpected status " + status + " from the server.";
-          $("admin-token-error").hidden = false;
-        }
-      });
-
-      $("admin-logout-btn").addEventListener("click", () => {
-        clearToken();
-        location.reload();
-      });
 
       // ─── Scenario list ─────────────────────────────────────────────
       let showInactive = false;
@@ -201,8 +150,8 @@
 
       async function loadCatalog() {
         $("admin-summary").textContent = "Loading…";
-        const r = await fetch("/api/admin/scenarios", { headers: authHeaders(), cache: "no-store" });
-        if (r.status === 401) { clearToken(); location.reload(); return; }
+        const r = await fetch("/api/admin/scenarios", { cache: "no-store" });
+        if (r.status === 401) { showGate(); return; }
         const body = await r.json();
         allScenarios = body.scenarios || [];
         $("admin-summary").textContent =
@@ -316,7 +265,7 @@
         const method = editingId ? "PUT" : "POST";
         const r = await fetch(url, {
           method,
-          headers: { ...authHeaders(), "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
         if (r.ok) {
@@ -340,7 +289,7 @@
       async function softDelete(id) {
         if (!confirm("Soft-delete " + id + "?\n\nIt will disappear from the catalog but historical reports referencing it will still resolve title/category.")) return;
         const r = await fetch("/api/admin/scenarios/" + encodeURIComponent(id), {
-          method: "DELETE", headers: authHeaders(),
+          method: "DELETE",
         });
         if (r.ok) await loadCatalog();
         else alert("Delete failed (" + r.status + ").");
@@ -348,7 +297,7 @@
 
       async function restore(id) {
         const r = await fetch("/api/admin/scenarios/" + encodeURIComponent(id) + "/restore", {
-          method: "POST", headers: authHeaders(),
+          method: "POST",
         });
         if (r.ok) await loadCatalog();
         else alert("Restore failed (" + r.status + ").");
@@ -356,11 +305,12 @@
 
       // ─── Bootstrap ─────────────────────────────────────────────────
       async function bootstrap() {
-        const token = getToken();
-        if (!token) { showGate(); return; }
-        const status = await probeToken(token);
-        if (status === 200) showCatalog();
-        else { clearToken(); showGate(); }
+        // Probe the same admin endpoint the rest of the page hits.
+        // 200 → SF session is valid, show the catalog.
+        // 401 → not signed in → tell the user to go log in.
+        const r = await fetch("/api/admin/scenarios", { cache: "no-store" });
+        if (r.status === 200) showCatalog();
+        else showGate();
       }
       bootstrap();
     })();

@@ -275,31 +275,36 @@ def create_app(config: AppConfig) -> FastAPI:
         body = {"models": [m.model_id for m in discover_models()]}
         return JSONResponse(body, headers=_NO_STORE)
 
-    # ─── Admin endpoints (gated by ADMIN_TOKEN env var) ────────────────
+    # ─── Admin endpoints (gated by SF OAuth session) ───────────────────
     #
-    # These power the /admin scenario CRUD UI. The token is checked
-    # against `Authorization: Bearer <token>` on every admin request.
-    # If ADMIN_TOKEN isn't set on the dyno, every admin call returns
-    # 503 — administrators must set the env var explicitly.
+    # These power the /admin scenario CRUD UI. Auth model: any browser
+    # session that has completed the Salesforce OAuth flow (i.e. has an
+    # SF token in its sessions row) is allowed to call admin endpoints.
+    # Same gate as the rest of the app — login = full access.
 
-    def _check_admin_token(request: Request) -> Optional[JSONResponse]:
-        """Returns None if the request is authorized; otherwise an
-        error JSONResponse the caller should return immediately."""
-        expected = os.environ.get("ADMIN_TOKEN")
-        if not expected:
+    async def _require_sf_session(request: Request) -> Optional[JSONResponse]:
+        """Returns None if the request carries a logged-in SF session
+        cookie; otherwise an error JSONResponse the caller should return
+        immediately."""
+        from token_compare import db
+        from token_compare.sessions import (
+            COOKIE_NAME, verify_session_id, BadSignature,
+        )
+        signed = request.cookies.get(COOKIE_NAME)
+        if not signed:
             return JSONResponse(
-                {"error": "admin endpoints disabled (ADMIN_TOKEN not set on the server)"},
-                status_code=503,
+                {"error": "Salesforce login required"}, status_code=401,
             )
-        auth = request.headers.get("Authorization", "")
-        prefix = "Bearer "
-        provided = auth[len(prefix):] if auth.startswith(prefix) else ""
-        # Constant-time compare so token-length differences don't leak.
-        import hmac
-        if not provided or not hmac.compare_digest(provided, expected):
+        try:
+            sid = verify_session_id(signed)
+        except BadSignature:
             return JSONResponse(
-                {"error": "invalid or missing admin token"},
-                status_code=401,
+                {"error": "Salesforce login required"}, status_code=401,
+            )
+        token = await db.get_sf_token(sid)
+        if not token:
+            return JSONResponse(
+                {"error": "Salesforce login required"}, status_code=401,
             )
         return None
 
@@ -316,7 +321,7 @@ def create_app(config: AppConfig) -> FastAPI:
 
     @app.get("/api/admin/scenarios")
     async def admin_list_scenarios(request: Request):
-        guard = _check_admin_token(request)
+        guard = await _require_sf_session(request)
         if guard is not None:
             return guard
         from token_compare import db
@@ -331,7 +336,7 @@ def create_app(config: AppConfig) -> FastAPI:
 
     @app.post("/api/admin/scenarios")
     async def admin_create_scenario(payload: ScenarioPayload, request: Request):
-        guard = _check_admin_token(request)
+        guard = await _require_sf_session(request)
         if guard is not None:
             return guard
         from token_compare import db
@@ -355,7 +360,7 @@ def create_app(config: AppConfig) -> FastAPI:
     async def admin_update_scenario(
         scenario_id: str, payload: ScenarioPayload, request: Request,
     ):
-        guard = _check_admin_token(request)
+        guard = await _require_sf_session(request)
         if guard is not None:
             return guard
         # The path id wins over the body id so the URL is the canonical
@@ -380,7 +385,7 @@ def create_app(config: AppConfig) -> FastAPI:
     async def admin_soft_delete_scenario(scenario_id: str, request: Request):
         """Soft-delete: set is_active=false. Historical reports
         referencing this scenario_id still resolve title/category."""
-        guard = _check_admin_token(request)
+        guard = await _require_sf_session(request)
         if guard is not None:
             return guard
         from token_compare import db
@@ -394,7 +399,7 @@ def create_app(config: AppConfig) -> FastAPI:
 
     @app.post("/api/admin/scenarios/{scenario_id}/restore")
     async def admin_restore_scenario(scenario_id: str, request: Request):
-        guard = _check_admin_token(request)
+        guard = await _require_sf_session(request)
         if guard is not None:
             return guard
         from token_compare import db
