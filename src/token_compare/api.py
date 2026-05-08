@@ -585,6 +585,10 @@ h1{{font-size:24px}}p{{color:#747474}}</style></head><body>
                 400,
             )
         if not code or not state:
+            # Even an invalid callback can carry a `state`; clean it up so
+            # abandoned login attempts don't accumulate in _state_to_sid.
+            if state:
+                _state_to_sid.pop(state, None)
             return page("Invalid callback", "Missing code or state.", 400)
         try:
             pending = complete_pending_login(state, code)
@@ -598,6 +602,22 @@ h1{{font-size:24px}}p{{color:#747474}}</style></head><body>
         sid = _state_to_sid.pop(state, None)
         if sid and pending.token is not None:
             await db.put_sf_token(sid, pending.token.model_dump())
+        elif sid is None:
+            # State succeeded but the cookie chain was broken (e.g., user
+            # finished OAuth in a different browser, or callback hit a
+            # different dyno). The token was minted but we have no
+            # session to attach it to. Log it so the operator notices.
+            import logging
+            logging.getLogger(__name__).warning(
+                "oauth callback for state %s has no matching session; "
+                "user will need to /api/sf/login again", state[:8],
+            )
+            return page(
+                "Salesforce login session lost",
+                "Your browser session didn't carry through the redirect. "
+                "Return to the app and click Connect Salesforce again.",
+                400,
+            )
         return page(
             "Salesforce login complete",
             "You can close this tab and return to the benchmark tool.",
