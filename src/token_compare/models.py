@@ -96,6 +96,18 @@ def _normalize_to_cube(payload: dict) -> dict:
     return payload
 
 
+def _default_model(models: list[str]) -> str:
+    """Pick a default model from a sweep list. Prefer any name containing
+    'sonnet' (case-insensitive) so future sonnet versions keep working;
+    otherwise return the first. Empty input → empty string."""
+    if not models:
+        return ""
+    for m in models:
+        if "sonnet" in m.lower():
+            return m
+    return models[0]
+
+
 class ModelRunBucket(BaseModel):
     native_runs: list[RunResult] = Field(default_factory=list)
     mcp_runs: list[RunResult] = Field(default_factory=list)

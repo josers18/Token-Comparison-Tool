@@ -255,3 +255,12 @@ def test_normalize_to_cube_idempotent():
     out = _normalize_to_cube(cube)
     assert out["models"] == ["sonnet", "opus"]
     assert set(out["scenarios"][0]["runs_by_model"].keys()) == {"sonnet", "opus"}
+
+
+def test_default_model_picks_sonnet():
+    from token_compare.models import _default_model
+    assert _default_model(["claude-4-5-sonnet"]) == "claude-4-5-sonnet"
+    assert _default_model(["claude-3-opus", "claude-4-5-sonnet"]) == "claude-4-5-sonnet"
+    assert _default_model(["claude-3-opus", "claude-3-haiku"]) == "claude-3-opus"
+    assert _default_model(["CLAUDE-5-SONNET"]) == "CLAUDE-5-SONNET"  # case-insensitive
+    assert _default_model([]) == ""  # degenerate input → empty string, no exception
