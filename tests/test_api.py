@@ -526,3 +526,44 @@ def test_post_run_legacy_model_string_still_works(client, monkeypatch):
         ) as resp:
             chunks = "".join(list(resp.iter_text()))
     assert "benchmark_complete" in chunks
+
+
+def test_load_legacy_report_normalizes_to_cube(client, monkeypatch):
+    """A legacy DB row without 'models'/'runs_by_model' still loads."""
+    from token_compare import db
+    legacy_payload = {
+        "started_at": "2026-04-01T00:00:00+00:00",
+        "finished_at": "2026-04-01T00:00:01+00:00",
+        "operator": "me", "org_name": "o", "tool_commit": "abc",
+        "model": "claude-4-5-sonnet",
+        "runs_per_path": 1,
+        "scenarios": [{
+            "scenario_id": "sLegacy",
+            "native_runs": [{"path": "native", "input_tokens": 10,
+                              "output_tokens": 5,
+                              "cache_read_input_tokens": 0,
+                              "total_cost_usd": 0.01, "num_turns": 1,
+                              "duration_ms": 100, "tool_calls": [],
+                              "succeeded": True, "raw_json": {}}],
+            "mcp_runs": [{"path": "mcp", "input_tokens": 20,
+                          "output_tokens": 10,
+                          "cache_read_input_tokens": 0,
+                          "total_cost_usd": 0.02, "num_turns": 1,
+                          "duration_ms": 200, "tool_calls": [],
+                          "succeeded": True, "raw_json": {}}],
+        }],
+    }
+    async def _mock_get_report(report_id):
+        if report_id == "rpt_legacy":
+            return {"id": "rpt_legacy",
+                    "started_at": "2026-04-01T00:00:00+00:00",
+                    "payload_json": legacy_payload}
+        return None
+    monkeypatch.setattr(db, "get_report", _mock_get_report)
+
+    r = client.get("/api/reports/rpt_legacy/data")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["ok"] is True
+    assert body["scenario_count"] == 1
+    assert body["scenario_ids"] == ["sLegacy"]

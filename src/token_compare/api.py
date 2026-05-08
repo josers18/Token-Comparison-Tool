@@ -22,7 +22,7 @@ from token_compare.report import default_report_path, write_markdown
 from token_compare.report_loader import (
     list_reports, load_json_report, load_markdown_report,
 )
-from token_compare.models import Scenario, SuccessCriteria
+from token_compare.models import Scenario, SuccessCriteria, _normalize_to_cube
 from token_compare.scenarios import load_all, load_all_from_db, seed_from_yaml_if_empty
 
 
@@ -811,7 +811,7 @@ def create_app(config: AppConfig) -> FastAPI:
         if not rec or not rec.get("payload_json"):
             return None
         from token_compare.models import BenchmarkResult
-        result = BenchmarkResult.model_validate(rec["payload_json"])
+        result = BenchmarkResult.model_validate(_normalize_to_cube(rec["payload_json"]))
         _current_run["active"] = False
         _current_run["events"] = []
         _current_run["started_at"] = result.started_at
@@ -887,6 +887,8 @@ def create_app(config: AppConfig) -> FastAPI:
 
             full = await db.get_report(r["id"])
             payload = (full or {}).get("payload_json")
+            if payload:
+                payload = _normalize_to_cube(payload)
             stats = _payload_to_stats(payload) if payload else {}
             reports.append({
                 "name": r["id"],
@@ -926,7 +928,7 @@ def create_app(config: AppConfig) -> FastAPI:
         if not rec or not rec.get("payload_json"):
             return JSONResponse({"error": "report not found"}, status_code=404)
         from token_compare.models import BenchmarkResult
-        result = BenchmarkResult.model_validate(rec["payload_json"])
+        result = BenchmarkResult.model_validate(_normalize_to_cube(rec["payload_json"]))
         return _hydrate_from_result(result, source=report_id)
 
     @app.get("/api/reports/{report_id}/markdown")
@@ -939,7 +941,7 @@ def create_app(config: AppConfig) -> FastAPI:
         if not rec or not rec.get("payload_json"):
             return JSONResponse({"error": "report not found"}, status_code=404)
         from token_compare.models import BenchmarkResult
-        result = BenchmarkResult.model_validate(rec["payload_json"])
+        result = BenchmarkResult.model_validate(_normalize_to_cube(rec["payload_json"]))
         # Resolve scenario metadata (title/category/difficulty) for the
         # writer. Same path as the live-run report writer uses.
         all_db_scenarios = await db.list_scenarios(include_inactive=True)
@@ -1077,7 +1079,7 @@ def create_app(config: AppConfig) -> FastAPI:
                 status_code=404,
             )
         from token_compare.models import BenchmarkResult
-        result = BenchmarkResult.model_validate(result_data)
+        result = BenchmarkResult.model_validate(_normalize_to_cube(result_data))
         sr = next((s for s in result.scenarios if s.scenario_id == scenario_id), None)
         if not sr:
             return JSONResponse(
