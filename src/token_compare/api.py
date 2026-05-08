@@ -923,6 +923,12 @@ h1{{font-size:24px}}p{{color:#747474}}</style></head><body>
         )
         return resp
 
+    @app.get("/admin")
+    async def admin_redirect():
+        """Pretty URL for the admin page — redirects to the static HTML."""
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url="/admin.html", status_code=307)
+
     if config.static_dir and config.static_dir.is_dir():
         app.mount("/", StaticFiles(directory=str(config.static_dir), html=True), name="static")
 
