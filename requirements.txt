@@ -10,3 +10,8 @@ python-multipart>=0.0.20
 anthropic>=0.40
 asyncpg>=0.30
 itsdangerous>=2.2
+
+# Install the local project (src/token_compare) so `uvicorn token_compare.api:app`
+# can find the module on the dyno's PYTHONPATH. pyproject.toml's
+# [tool.setuptools.packages.find] handles the src/ layout.
+-e .
