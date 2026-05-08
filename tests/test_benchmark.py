@@ -89,3 +89,21 @@ def test_run_benchmark_randomizes_path_order(tmp_path):
 
 # Removed test_run_benchmark_resolves_mcp_config_when_creds_set:
 # resolve_template behavior is retired — tokens now flow from api.py → benchmark → messages_runner without temp files.
+
+
+def test_benchmark_options_models_field():
+    from token_compare.benchmark import BenchmarkOptions
+    from pathlib import Path
+    opts = BenchmarkOptions(
+        model="sonnet", models=["sonnet", "opus"],
+        max_turns=10, timeout_s=30, runs_per_path=1,
+        mcp_template_path=Path("/tmp/x"), operator="me",
+        org_name="o", sf_token={},
+    )
+    assert opts.models == ["sonnet", "opus"]
+
+
+def test_progress_event_carries_model():
+    from token_compare.benchmark import ProgressEvent
+    e = ProgressEvent(kind="run_start", model="sonnet")
+    assert e.model == "sonnet"

@@ -16,7 +16,8 @@ from token_compare.models import (
 
 
 class BenchmarkOptions(BaseModel):
-    model: str
+    model: str            # KEPT for back-compat — equals models[0] when single-model
+    models: list[str] = []  # NEW — sweep list; empty defaults to [model] in run_benchmark
     max_turns: int
     timeout_s: int
     runs_per_path: int
@@ -40,6 +41,7 @@ class ProgressEvent:
     run_index: Optional[int] = None
     total_runs: Optional[int] = None
     run_result: Optional[RunResult] = None
+    model: Optional[str] = None
 
 
 def _git_sha() -> str:
