@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import math
 from enum import Enum
-from statistics import median
+from statistics import median, pstdev
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -48,6 +49,33 @@ def _median_int(values: list[int]) -> int:
 
 def _median_float(values: list[float]) -> float:
     return float(median(values)) if values else 0.0
+
+
+def _percentile_float(values: list[float], pct: float) -> float:
+    """Nearest-rank percentile (e.g. pct=0.95 → p95). Returns 0.0 on
+    empty input. Conservative choice over linear interpolation: with
+    small N (3–5 typical for benchmark runs) interpolation gives the
+    *same* answer as nearest-rank but reads as if we have more
+    statistical resolution than we do."""
+    if not values:
+        return 0.0
+    s = sorted(values)
+    # nearest-rank: ceil(pct * N) - 1, clamped to valid range
+    idx = max(0, min(len(s) - 1, math.ceil(pct * len(s)) - 1))
+    return float(s[idx])
+
+
+def _percentile_int(values: list[int], pct: float) -> int:
+    return int(_percentile_float([float(v) for v in values], pct))
+
+
+def _stddev_float(values: list[float]) -> float:
+    """Population standard deviation. Returns 0.0 for fewer than 2
+    samples (statistics.pstdev would error on an empty list and is
+    undefined for N=1; both cases mean 'no spread to report')."""
+    if len(values) < 2:
+        return 0.0
+    return float(pstdev(values))
 
 
 class ScenarioResult(BaseModel):
@@ -171,6 +199,81 @@ class ScenarioResult(BaseModel):
         if self.native_median_cost <= 0:
             return None
         return self.mcp_median_cost / self.native_median_cost
+
+    # ─── Tier A: variance + cache + duration + outcomes ──────────────────
+    # All computed lazily from the existing run lists; no schema migration.
+
+    @property
+    def native_p95_cost(self) -> float:
+        return _percentile_float([r.total_cost_usd for r in self.native_runs], 0.95)
+
+    @property
+    def mcp_p95_cost(self) -> float:
+        return _percentile_float([r.total_cost_usd for r in self.mcp_runs], 0.95)
+
+    @property
+    def native_stddev_cost(self) -> float:
+        return _stddev_float([r.total_cost_usd for r in self.native_runs])
+
+    @property
+    def mcp_stddev_cost(self) -> float:
+        return _stddev_float([r.total_cost_usd for r in self.mcp_runs])
+
+    @property
+    def native_median_duration_ms(self) -> int:
+        return _median_int([r.duration_ms for r in self.native_runs])
+
+    @property
+    def mcp_median_duration_ms(self) -> int:
+        return _median_int([r.duration_ms for r in self.mcp_runs])
+
+    @property
+    def native_p95_duration_ms(self) -> int:
+        return _percentile_int([r.duration_ms for r in self.native_runs], 0.95)
+
+    @property
+    def mcp_p95_duration_ms(self) -> int:
+        return _percentile_int([r.duration_ms for r in self.mcp_runs], 0.95)
+
+    def _cache_hit_ratio(self, runs: list[RunResult]) -> float:
+        """Fraction of total *input-side* tokens served from cache.
+        Denominator = input_tokens + cache_read + cache_creation across
+        all runs. cache_creation is *not* a hit (it's the cost of
+        seeding cache for next time), so the numerator is just
+        cache_read_input_tokens. Returns 0.0 if there's no input data."""
+        total_in = 0
+        total_cache_read = 0
+        for r in runs:
+            total_in += (
+                r.input_tokens
+                + r.cache_read_input_tokens
+                + r.cache_creation_input_tokens
+            )
+            total_cache_read += r.cache_read_input_tokens
+        if total_in <= 0:
+            return 0.0
+        return total_cache_read / total_in
+
+    @property
+    def native_cache_hit_ratio(self) -> float:
+        return self._cache_hit_ratio(self.native_runs)
+
+    @property
+    def mcp_cache_hit_ratio(self) -> float:
+        return self._cache_hit_ratio(self.mcp_runs)
+
+    @property
+    def native_outcomes(self) -> dict[str, int]:
+        """Map of outcome-kind → count for the Native runs.
+        Imported lazily so models.py doesn't gain a runtime dep on
+        outcomes.py (keeps the dependency graph one-way: outcomes → models)."""
+        from token_compare.outcomes import aggregate
+        return aggregate(self.native_runs)
+
+    @property
+    def mcp_outcomes(self) -> dict[str, int]:
+        from token_compare.outcomes import aggregate
+        return aggregate(self.mcp_runs)
 
 
 class BenchmarkResult(BaseModel):

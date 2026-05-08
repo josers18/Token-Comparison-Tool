@@ -190,11 +190,13 @@
               <th data-sort="native_cost">Native</th>
               <th data-sort="mcp_cost">MCP</th>
               <th data-sort="mcp_native_ratio">Ratio</th>
+              <th data-sort="native_success">Success</th>
+              <th data-sort="native_cache_hit_ratio">Cache hit</th>
               <th></th>
             </tr>
           </thead>
           <tbody id="reports-tbody">
-            <tr><td colspan="9" class="muted reports-empty">Loading…</td></tr>
+            <tr><td colspan="11" class="muted reports-empty">Loading…</td></tr>
           </tbody>
         </table>
       </div><!-- /setup-section[reports] -->
@@ -230,6 +232,10 @@
             <div>Turns <span id="sv-native-turns">—</span></div>
             <div>Cost / run <span id="sv-native-cost">—</span></div>
           </div>
+          <div class="panel-meta panel-meta-secondary">
+            <div>Cache hit <span id="sv-native-cache">—</span></div>
+            <div>Wall-clock <span id="sv-native-duration">—</span></div>
+          </div>
           <ul class="tools" id="sv-native-tools"></ul>
         </div>
         <div class="panel mcp">
@@ -241,8 +247,34 @@
             <div>Turns <span id="sv-mcp-turns">—</span></div>
             <div>Cost / run <span id="sv-mcp-cost">—</span></div>
           </div>
+          <div class="panel-meta panel-meta-secondary">
+            <div>Cache hit <span id="sv-mcp-cache">—</span></div>
+            <div>Wall-clock <span id="sv-mcp-duration">—</span></div>
+          </div>
           <ul class="tools" id="sv-mcp-tools"></ul>
         </div>
+      </div>
+
+      <!-- Per-run breakdown — exposes variance that the medians hide. -->
+      <div class="per-run-card" id="per-run-card" hidden>
+        <h3>Per-run breakdown</h3>
+        <p class="muted">Each run that contributed to the medians above. Cost spread reveals whether the comparison is reliable or noisy.</p>
+        <table class="per-run-table">
+          <thead>
+            <tr>
+              <th>Run</th>
+              <th>Path</th>
+              <th>Outcome</th>
+              <th>Turns</th>
+              <th>In tokens</th>
+              <th>Out tokens</th>
+              <th>Cache hit</th>
+              <th>Wall-clock</th>
+              <th>Cost</th>
+            </tr>
+          </thead>
+          <tbody id="per-run-tbody"></tbody>
+        </table>
       </div>
 
       <div class="results-card">
@@ -329,6 +361,32 @@
           <h4>MCP wins</h4>
           <p id="framework-mcp-pattern">—</p>
           <ul id="framework-mcp-bullets"></ul>
+        </div>
+      </div>
+
+      <h3>Run outcomes</h3>
+      <p class="muted">How runs landed across both paths. A high <em>succeeded</em> count is what you want. Other categories tell you why a path is unreliable: <code>max turns</code> = ran out of budget mid-task; <code>auth error</code> = scope/permission issue; <code>no tool calls</code> = model declined to act.</p>
+      <div class="outcomes-rollup">
+        <div class="outcomes-row" id="outcomes-native-row">
+          <div class="outcomes-row-label">Native</div>
+          <div class="outcomes-row-bar" id="outcomes-native-bar"></div>
+        </div>
+        <div class="outcomes-row" id="outcomes-mcp-row">
+          <div class="outcomes-row-label">MCP</div>
+          <div class="outcomes-row-bar" id="outcomes-mcp-bar"></div>
+        </div>
+      </div>
+
+      <h3>Cache effectiveness</h3>
+      <p class="muted">Fraction of input-side tokens served from cache (vs freshly billed). Higher = more turns hit cache → lower steady-state cost.</p>
+      <div class="cache-rollup">
+        <div class="cache-tile">
+          <div class="cache-tile-label">Native</div>
+          <div class="cache-tile-value" id="cache-native">—</div>
+        </div>
+        <div class="cache-tile">
+          <div class="cache-tile-label">MCP</div>
+          <div class="cache-tile-value" id="cache-mcp">—</div>
         </div>
       </div>
 

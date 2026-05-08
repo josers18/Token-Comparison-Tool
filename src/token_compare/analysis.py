@@ -318,6 +318,22 @@ class ScenarioWinner(BaseModel):
     mcp_cost: float
     native_succeeded: int
     mcp_succeeded: int
+    # ─── Tier A: variance + cache + duration + outcomes ────────────────
+    native_p95_cost: float = 0.0
+    mcp_p95_cost: float = 0.0
+    native_stddev_cost: float = 0.0
+    mcp_stddev_cost: float = 0.0
+    native_cache_hit_ratio: float = 0.0
+    mcp_cache_hit_ratio: float = 0.0
+    native_median_duration_ms: int = 0
+    mcp_median_duration_ms: int = 0
+    native_outcomes: dict[str, int] = {}
+    mcp_outcomes: dict[str, int] = {}
+    # Confidence flag: low when N<5 or σ > 50% of mean cost. The SPA
+    # renders this as a small chip next to the multiplier; users
+    # shouldn't read a 2× ratio from 3 runs as a hard claim.
+    confidence: str = "high"  # "high" | "low"
+    confidence_reason: Optional[str] = None
 
 
 class SummaryAnalysis(BaseModel):
@@ -332,6 +348,15 @@ class SummaryAnalysis(BaseModel):
     framework_native_pattern: Optional[str] = None  # one-line generalization
     framework_mcp_pattern: Optional[str] = None     # one-line generalization
     runs_per_path: int = 1
+    # ─── Tier A rollups ─────────────────────────────────────────────────
+    # Combined-across-scenarios counts. The SPA renders these as stacked
+    # outcome bars in the summary view so the user can see at a glance
+    # how the two paths failed in different ways.
+    native_outcomes_total: dict[str, int] = {}
+    mcp_outcomes_total: dict[str, int] = {}
+    # Aggregate cache-hit ratio across every successful run, per path.
+    native_cache_hit_ratio: float = 0.0
+    mcp_cache_hit_ratio: float = 0.0
 
 
 def build_summary_analysis(
@@ -368,6 +393,27 @@ def build_summary_analysis(
         else:
             winner = "tied"
 
+        # Confidence: low if either path has <5 runs OR a standard
+        # deviation that's >50% of the median cost. Users with N=3
+        # see a chip warning them not to read the multiplier as
+        # statistically meaningful.
+        confidence = "high"
+        confidence_reason = None
+        n_min = min(len(sr.native_runs), len(sr.mcp_runs))
+        if n_min < 5:
+            confidence = "low"
+            confidence_reason = f"only {n_min} runs/path; ≥5 recommended for stable medians"
+        else:
+            # σ/median check on the slower / costlier side.
+            for label, m, s in (
+                ("Native", sr.native_median_cost_all, sr.native_stddev_cost),
+                ("MCP", sr.mcp_median_cost_all, sr.mcp_stddev_cost),
+            ):
+                if m > 0 and (s / m) > 0.5:
+                    confidence = "low"
+                    confidence_reason = f"{label} σ/median = {s/m:.1f} (high variance)"
+                    break
+
         sw = ScenarioWinner(
             scenario_id=sr.scenario_id,
             title=meta.get("title"),
@@ -377,6 +423,18 @@ def build_summary_analysis(
             mcp_cost=mcp_cost,
             native_succeeded=nat_succ,
             mcp_succeeded=mcp_succ,
+            native_p95_cost=sr.native_p95_cost,
+            mcp_p95_cost=sr.mcp_p95_cost,
+            native_stddev_cost=sr.native_stddev_cost,
+            mcp_stddev_cost=sr.mcp_stddev_cost,
+            native_cache_hit_ratio=sr.native_cache_hit_ratio,
+            mcp_cache_hit_ratio=sr.mcp_cache_hit_ratio,
+            native_median_duration_ms=sr.native_median_duration_ms,
+            mcp_median_duration_ms=sr.mcp_median_duration_ms,
+            native_outcomes=sr.native_outcomes,
+            mcp_outcomes=sr.mcp_outcomes,
+            confidence=confidence,
+            confidence_reason=confidence_reason,
         )
         winners.append(sw)
         if winner == "native":
@@ -388,6 +446,34 @@ def build_summary_analysis(
     summary.total_native_cost = result.total_native_cost
     summary.total_mcp_cost = result.total_mcp_cost
     summary.avg_multiplier = result.average_multiplier
+
+    # Tier A rollups: outcome counts + cache-hit ratios across all
+    # scenarios. The SPA renders these as stacked bars / single-number
+    # tiles so the user sees aggregate behavior, not just per-scenario.
+    from token_compare.outcomes import OutcomeKind
+    nat_total: dict[str, int] = {k.value: 0 for k in OutcomeKind}
+    mcp_total: dict[str, int] = {k.value: 0 for k in OutcomeKind}
+    nat_cache_in = 0; nat_cache_read = 0
+    mcp_cache_in = 0; mcp_cache_read = 0
+    for sr in result.scenarios:
+        for k, v in sr.native_outcomes.items():
+            nat_total[k] = nat_total.get(k, 0) + v
+        for k, v in sr.mcp_outcomes.items():
+            mcp_total[k] = mcp_total.get(k, 0) + v
+        for r in sr.native_runs:
+            nat_cache_in += (
+                r.input_tokens + r.cache_read_input_tokens + r.cache_creation_input_tokens
+            )
+            nat_cache_read += r.cache_read_input_tokens
+        for r in sr.mcp_runs:
+            mcp_cache_in += (
+                r.input_tokens + r.cache_read_input_tokens + r.cache_creation_input_tokens
+            )
+            mcp_cache_read += r.cache_read_input_tokens
+    summary.native_outcomes_total = nat_total
+    summary.mcp_outcomes_total = mcp_total
+    summary.native_cache_hit_ratio = (nat_cache_read / nat_cache_in) if nat_cache_in > 0 else 0.0
+    summary.mcp_cache_hit_ratio = (mcp_cache_read / mcp_cache_in) if mcp_cache_in > 0 else 0.0
 
     # Headline
     if summary.avg_multiplier is None:

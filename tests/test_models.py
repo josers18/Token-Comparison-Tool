@@ -76,3 +76,98 @@ def test_scenario_result_median_total_input_tokens():
     sr = ScenarioResult(scenario_id="s", native_runs=runs, mcp_runs=runs)
     assert sr.native_median_total_input_tokens == 600
     assert sr.mcp_median_total_input_tokens == 600
+
+
+# ─── Tier A: variance + cache + duration + outcomes ────────────────────
+
+
+def _r(cost: float, in_tok: int = 100, cache_read: int = 0,
+       cache_create: int = 0, duration_ms: int = 100,
+       succeeded: bool = True, error: str | None = None) -> RunResult:
+    return RunResult(
+        path=PathName.NATIVE,
+        input_tokens=in_tok, output_tokens=20,
+        cache_read_input_tokens=cache_read,
+        cache_creation_input_tokens=cache_create,
+        total_cost_usd=cost, num_turns=1, duration_ms=duration_ms,
+        tool_calls=[], succeeded=succeeded, error=error,
+    )
+
+
+def test_p95_cost_picks_high_value_with_small_n():
+    # 5 runs: $0.01, $0.02, $0.03, $0.04, $0.10 → p95 nearest-rank picks
+    # ceil(0.95 * 5) = 5 → index 4 → 0.10
+    runs = [_r(c) for c in [0.01, 0.02, 0.03, 0.04, 0.10]]
+    sr = ScenarioResult(scenario_id="s", native_runs=runs, mcp_runs=[])
+    assert sr.native_p95_cost == 0.10
+
+
+def test_p95_handles_empty():
+    sr = ScenarioResult(scenario_id="s", native_runs=[], mcp_runs=[])
+    assert sr.native_p95_cost == 0.0
+    assert sr.mcp_p95_cost == 0.0
+
+
+def test_stddev_zero_for_identical_runs():
+    runs = [_r(0.05) for _ in range(4)]
+    sr = ScenarioResult(scenario_id="s", native_runs=runs, mcp_runs=[])
+    assert sr.native_stddev_cost == 0.0
+
+
+def test_stddev_nonzero_with_spread():
+    # Population stddev of [0.01, 0.05, 0.09] is √((0.04² + 0 + 0.04²)/3)
+    # ≈ 0.0327. Just verify it's > 0 and reasonable.
+    runs = [_r(c) for c in [0.01, 0.05, 0.09]]
+    sr = ScenarioResult(scenario_id="s", native_runs=runs, mcp_runs=[])
+    assert 0.025 < sr.native_stddev_cost < 0.04
+
+
+def test_stddev_n_lt_2_returns_zero():
+    # pstdev would error on empty / be undefined for N=1
+    sr_empty = ScenarioResult(scenario_id="s", native_runs=[], mcp_runs=[])
+    assert sr_empty.native_stddev_cost == 0.0
+    sr_one = ScenarioResult(scenario_id="s", native_runs=[_r(0.01)], mcp_runs=[])
+    assert sr_one.native_stddev_cost == 0.0
+
+
+def test_cache_hit_ratio():
+    # input=100, cache_read=300, cache_creation=100 per run → total_in=500
+    # cache_read share = 300/500 = 0.6
+    runs = [_r(0.01, in_tok=100, cache_read=300, cache_create=100) for _ in range(3)]
+    sr = ScenarioResult(scenario_id="s", native_runs=runs, mcp_runs=[])
+    assert sr.native_cache_hit_ratio == pytest.approx(0.6)
+
+
+def test_cache_hit_ratio_zero_when_no_cache():
+    runs = [_r(0.01, in_tok=100, cache_read=0, cache_create=0) for _ in range(2)]
+    sr = ScenarioResult(scenario_id="s", native_runs=runs, mcp_runs=[])
+    assert sr.native_cache_hit_ratio == 0.0
+
+
+def test_cache_hit_ratio_zero_for_empty_runs():
+    sr = ScenarioResult(scenario_id="s", native_runs=[], mcp_runs=[])
+    assert sr.native_cache_hit_ratio == 0.0
+    assert sr.mcp_cache_hit_ratio == 0.0
+
+
+def test_duration_medians_p95():
+    runs = [_r(0.01, duration_ms=d) for d in [100, 200, 300, 400, 1000]]
+    sr = ScenarioResult(scenario_id="s", native_runs=runs, mcp_runs=[])
+    assert sr.native_median_duration_ms == 300
+    assert sr.native_p95_duration_ms == 1000
+
+
+def test_outcomes_per_path():
+    runs = [
+        _r(0.01, succeeded=True),
+        _r(0.01, succeeded=True),
+        _r(0.0, succeeded=False, error="terminal_reason=max_turns"),
+        _r(0.0, succeeded=False, error="HTTP 401: bad scope"),
+    ]
+    sr = ScenarioResult(scenario_id="s", native_runs=runs, mcp_runs=[])
+    out = sr.native_outcomes
+    assert out["succeeded"] == 2
+    assert out["max_turns"] == 1
+    assert out["tool_auth_error"] == 1
+    # Empty mcp_runs produces all-zero outcomes dict.
+    assert all(v == 0 for v in sr.mcp_outcomes.values())

@@ -163,8 +163,10 @@ def _event_to_dict(e: ProgressEvent) -> dict:
 def _payload_to_stats(payload: dict) -> dict:
     """Derive the per-row analytics stats the reports table renders:
     kind, scenario_count, runs_per_path, native_cost, mcp_cost,
-    mcp_native_ratio. Robust against partial / older payload shapes
-    (returns zeros where the data isn't there)."""
+    mcp_native_ratio. Tier A also surfaces success rates + aggregate
+    cache-hit ratios so the table can flag noisy runs at a glance.
+    Robust against partial / older payload shapes (returns zeros where
+    the data isn't there)."""
     if not isinstance(payload, dict):
         return {}
     scenarios = payload.get("scenarios") or []
@@ -172,6 +174,9 @@ def _payload_to_stats(payload: dict) -> dict:
     native_cost = 0.0
     mcp_cost = 0.0
     has_freeform = False
+    nat_ok = nat_total = mcp_ok = mcp_total = 0
+    nat_in_total = nat_cache_read = 0
+    mcp_in_total = mcp_cache_read = 0
     for s in scenarios:
         if not isinstance(s, dict):
             continue
@@ -179,15 +184,29 @@ def _payload_to_stats(payload: dict) -> dict:
         if sid.startswith("freeform_"):
             has_freeform = True
         for r in (s.get("native_runs") or []):
+            nat_total += 1
+            if r.get("succeeded"):
+                nat_ok += 1
             try:
                 native_cost += float(r.get("total_cost_usd") or 0)
             except (TypeError, ValueError):
                 pass
+            nat_in_total += int(r.get("input_tokens") or 0) \
+                + int(r.get("cache_read_input_tokens") or 0) \
+                + int(r.get("cache_creation_input_tokens") or 0)
+            nat_cache_read += int(r.get("cache_read_input_tokens") or 0)
         for r in (s.get("mcp_runs") or []):
+            mcp_total += 1
+            if r.get("succeeded"):
+                mcp_ok += 1
             try:
                 mcp_cost += float(r.get("total_cost_usd") or 0)
             except (TypeError, ValueError):
                 pass
+            mcp_in_total += int(r.get("input_tokens") or 0) \
+                + int(r.get("cache_read_input_tokens") or 0) \
+                + int(r.get("cache_creation_input_tokens") or 0)
+            mcp_cache_read += int(r.get("cache_read_input_tokens") or 0)
     ratio = (mcp_cost / native_cost) if native_cost > 0 else None
     # 'freeform' if every scenario in the payload is a freeform_*; 'mixed'
     # if both kinds present; 'catalog' otherwise. The common case is
@@ -202,6 +221,8 @@ def _payload_to_stats(payload: dict) -> dict:
         kind = "mixed"
     else:
         kind = "catalog"
+    nat_cache = (nat_cache_read / nat_in_total) if nat_in_total > 0 else 0.0
+    mcp_cache = (mcp_cache_read / mcp_in_total) if mcp_in_total > 0 else 0.0
     return {
         "kind": kind,
         "scenario_count": len(scenarios),
@@ -209,6 +230,13 @@ def _payload_to_stats(payload: dict) -> dict:
         "native_cost": round(native_cost, 6),
         "mcp_cost": round(mcp_cost, 6),
         "mcp_native_ratio": round(ratio, 3) if ratio is not None else None,
+        # Tier A — success rate + cache-hit ratio per path.
+        "native_success": nat_ok,
+        "native_total": nat_total,
+        "mcp_success": mcp_ok,
+        "mcp_total": mcp_total,
+        "native_cache_hit_ratio": round(nat_cache, 3),
+        "mcp_cache_hit_ratio": round(mcp_cache, 3),
     }
 
 

@@ -316,6 +316,170 @@ html, body {
 }
 
 /* ═════════════════════════════════════════════════════════════
+   Tier A — variance, cache, outcomes UI
+   ═════════════════════════════════════════════════════════════ */
+
+/* Secondary panel-meta strip (cache hit / wall-clock under the existing
+   turns/cost row). Same shape as .panel-meta, lighter chrome. */
+.panel-meta-secondary {
+  margin-top: 8px;
+  opacity: 0.85;
+  font-size: 12.5px;
+}
+
+/* Per-run breakdown table — sits below the dual panels in scenario-view. */
+.per-run-card {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--hair-2);
+}
+.per-run-card h3 {
+  font-family: var(--serif);
+  font-weight: 500;
+  font-size: 22px;
+  margin: 0 0 6px;
+}
+.per-run-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+  margin-top: 12px;
+}
+.per-run-table th {
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--hair-2);
+}
+.per-run-table td {
+  padding: 10px;
+  border-bottom: 1px solid var(--hair, rgba(20, 18, 14, 0.06));
+  vertical-align: middle;
+}
+.per-run-table .col-num {
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+.per-run-table .col-path-native { color: var(--signal); font-weight: 500; }
+.per-run-table .col-path-mcp { color: var(--counter); font-weight: 500; }
+
+.outcome-pill {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+.outcome-pill.outcome-succeeded { color: var(--signal); }
+.outcome-pill.outcome-max_turns,
+.outcome-pill.outcome-no_tool_calls { color: var(--amber); }
+.outcome-pill.outcome-tool_auth_error,
+.outcome-pill.outcome-inference_error,
+.outcome-pill.outcome-mcp_init_failed,
+.outcome-pill.outcome-other { color: var(--crimson); }
+
+/* Confidence chip — appended to the multiplier when N<5 or σ/μ > 50%. */
+.confidence-chip {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  margin-left: 8px;
+  border-radius: 4px;
+  border: 1px solid var(--amber-edge);
+  color: var(--amber);
+  background: rgba(180, 83, 9, 0.06);
+  cursor: help;
+  vertical-align: middle;
+}
+
+/* Outcome rollup (stacked bar) in the summary view */
+.outcomes-rollup {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0 24px;
+}
+.outcomes-row {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  align-items: center;
+  gap: 14px;
+}
+.outcomes-row-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+.outcomes-row-bar {
+  display: flex;
+  height: 28px;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid var(--hair-2);
+  background: var(--paper-100);
+}
+.outcome-seg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.outcome-seg.outcome-succeeded { background: var(--signal-vivid); }
+.outcome-seg.outcome-max_turns { background: var(--amber); }
+.outcome-seg.outcome-no_tool_calls { background: #d97706; }
+.outcome-seg.outcome-tool_auth_error { background: var(--crimson); }
+.outcome-seg.outcome-inference_error { background: #991b1b; }
+.outcome-seg.outcome-mcp_init_failed { background: #7f1d1d; }
+.outcome-seg.outcome-other { background: var(--ink-mute); }
+
+/* Cache effectiveness rollup (two big % tiles) */
+.cache-rollup {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin: 12px 0 24px;
+}
+.cache-tile {
+  border: 1px solid var(--hair-2);
+  border-radius: var(--r-md, 6px);
+  padding: 18px 20px;
+  background: var(--paper-card);
+}
+.cache-tile-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+.cache-tile-value {
+  font-family: var(--serif);
+  font-size: 30px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  margin-top: 6px;
+}
+
+/* ═════════════════════════════════════════════════════════════
    Reports & analytics view (setup-section[data-section=reports])
    ═════════════════════════════════════════════════════════════ */
 .kpi-strip {

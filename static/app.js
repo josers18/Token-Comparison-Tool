@@ -567,7 +567,7 @@ async function loadReports() {
   if (!tbody) return;
   tbody.replaceChildren();
   tbody.appendChild(
-    el("tr", {}, el("td", { attrs: { colspan: "9" }, className: "muted reports-empty", text: "Loading…" })),
+    el("tr", {}, el("td", { attrs: { colspan: "11" }, className: "muted reports-empty", text: "Loading…" })),
   );
   try {
     const res = await fetch("/api/reports?limit=100", { cache: "no-store" });
@@ -588,7 +588,7 @@ async function loadReports() {
     renderReportsTable();
   } catch (e) {
     tbody.replaceChildren(
-      el("tr", {}, el("td", { attrs: { colspan: "9" }, className: "muted reports-empty",
+      el("tr", {}, el("td", { attrs: { colspan: "11" }, className: "muted reports-empty",
         text: "Failed to load reports: " + e.message })),
     );
   }
@@ -636,7 +636,7 @@ function renderReportsTable() {
   tbody.replaceChildren();
   if (rows.length === 0) {
     tbody.appendChild(el("tr", {},
-      el("td", { attrs: { colspan: "9" }, className: "muted reports-empty",
+      el("td", { attrs: { colspan: "11" }, className: "muted reports-empty",
         text: "No reports match these filters." })));
     return;
   }
@@ -659,6 +659,17 @@ function renderReportsTable() {
       ratioCell.classList.add(r.mcp_native_ratio > 1 ? "ratio-native-wins" : "ratio-mcp-wins");
     }
     tr.appendChild(ratioCell);
+    // Tier A: combined success rate (native + mcp) and aggregate cache hit %.
+    const okCount = (r.native_success || 0) + (r.mcp_success || 0);
+    const totalCount = (r.native_total || 0) + (r.mcp_total || 0);
+    tr.appendChild(td(totalCount > 0 ? `${okCount}/${totalCount}` : "—", "col-num"));
+    const totalIn = (r.native_cache_hit_ratio || 0) * (r.native_total || 1)
+      + (r.mcp_cache_hit_ratio || 0) * (r.mcp_total || 1);
+    const totalRunsForCache = (r.native_total || 0) + (r.mcp_total || 0);
+    const cachePct = totalRunsForCache > 0
+      ? ((totalIn / totalRunsForCache) * 100).toFixed(0) + "%"
+      : "—";
+    tr.appendChild(td(cachePct, "col-num"));
     tr.appendChild(reportActionsCell(r));
 
     // Click anywhere in the row except the actions cell → load the report.
@@ -969,6 +980,7 @@ function renderScenario(sid) {
 
   fillPanel("native", bucket.native);
   fillPanel("mcp", bucket.mcp);
+  fillPerRunBreakdown(bucket);
 
   const nativeMed = medianOf(bucket.native, "total_cost_usd");
   const mcpMed = medianOf(bucket.mcp, "total_cost_usd");
@@ -1066,6 +1078,147 @@ function renderScenario(sid) {
   }
 }
 
+// ─── Tier A helpers ─────────────────────────────────────────────────────
+
+function formatCacheHit(runs) {
+  // Aggregate cache_read_input_tokens / total_input_tokens across all
+  // runs the panel summarizes. Same formula the server's
+  // _cache_hit_ratio uses, kept in sync so the panel matches the
+  // per-run breakdown rows.
+  let totalIn = 0, cacheRead = 0;
+  for (const r of runs) {
+    totalIn += (r.input_tokens || 0) + (r.cache_read_input_tokens || 0)
+      + (r.cache_creation_input_tokens || 0);
+    cacheRead += (r.cache_read_input_tokens || 0);
+  }
+  if (totalIn <= 0) return "—";
+  const pct = (cacheRead / totalIn) * 100;
+  return pct.toFixed(0) + "%";
+}
+
+function formatDuration(ms) {
+  if (!ms) return "—";
+  if (ms < 1000) return ms + " ms";
+  return (ms / 1000).toFixed(1) + " s";
+}
+
+function classifyOutcome(run) {
+  // Mirror of server-side outcomes.classify, kept short. Used by the
+  // per-run breakdown table so each row shows why a failed run failed.
+  if (run.succeeded) return "succeeded";
+  const err = (run.error || "").toLowerCase();
+  if (err.includes("mcp_init_failed")) return "mcp_init_failed";
+  if (err.includes("max_turns") || err.includes("max turns")) return "max_turns";
+  if (err.includes("inference error") || err.includes("inference call failed")
+      || err.includes("mcp_unresolved_tool_use") || err.includes("anthropic")) {
+    return "inference_error";
+  }
+  if (err.includes("http 401") || err.includes("http 403")
+      || err.includes("invalid_scopes") || err.includes("unauthorized")) {
+    return "tool_auth_error";
+  }
+  if (err.includes("no tool calls") || err.includes("model declined")) {
+    return "no_tool_calls";
+  }
+  return "other";
+}
+
+function outcomeLabel(kind) {
+  return ({
+    succeeded: "succeeded",
+    max_turns: "max turns",
+    inference_error: "inference error",
+    mcp_init_failed: "MCP init failed",
+    no_tool_calls: "no tool calls",
+    tool_auth_error: "auth error",
+    other: "failed",
+  })[kind] || kind;
+}
+
+function fillPerRunBreakdown(bucket) {
+  // bucket = { native: RunResult[], mcp: RunResult[] }. Render every
+  // run from both paths, native first then MCP, in arrival order.
+  const tbody = $("per-run-tbody");
+  const card = $("per-run-card");
+  if (!tbody || !card) return;
+  const allRows = [
+    ...bucket.native.map((r, i) => ({ r, idx: i + 1, label: "Native" })),
+    ...bucket.mcp.map((r, i) => ({ r, idx: i + 1, label: "MCP" })),
+  ];
+  if (allRows.length === 0) {
+    card.hidden = true;
+    return;
+  }
+  card.hidden = false;
+  tbody.replaceChildren();
+  for (const { r, idx, label } of allRows) {
+    const tr = document.createElement("tr");
+    tr.appendChild(elTd(`${idx}`, "col-num"));
+    tr.appendChild(elTd(label, "col-path-" + label.toLowerCase()));
+    const kind = classifyOutcome(r);
+    const pill = el("span", { className: "outcome-pill outcome-" + kind, text: outcomeLabel(kind) });
+    const tdOutcome = document.createElement("td");
+    tdOutcome.appendChild(pill);
+    tr.appendChild(tdOutcome);
+    tr.appendChild(elTd(String(r.num_turns || 0), "col-num"));
+    const totalIn = (r.input_tokens || 0) + (r.cache_read_input_tokens || 0)
+      + (r.cache_creation_input_tokens || 0);
+    tr.appendChild(elTd(totalIn.toLocaleString(), "col-num"));
+    tr.appendChild(elTd((r.output_tokens || 0).toLocaleString(), "col-num"));
+    const cachePct = totalIn > 0
+      ? ((r.cache_read_input_tokens || 0) / totalIn * 100).toFixed(0) + "%"
+      : "—";
+    tr.appendChild(elTd(cachePct, "col-num"));
+    tr.appendChild(elTd(formatDuration(r.duration_ms), "col-num"));
+    tr.appendChild(elTd("$" + (r.total_cost_usd || 0).toFixed(4), "col-num"));
+    tbody.appendChild(tr);
+  }
+}
+
+function elTd(text, cls) {
+  const t = document.createElement("td");
+  if (cls) t.className = cls;
+  t.textContent = text == null ? "—" : text;
+  return t;
+}
+
+function formatPct(ratio) {
+  if (ratio == null || isNaN(ratio)) return "—";
+  return (ratio * 100).toFixed(0) + "%";
+}
+
+function renderOutcomeBar(elementId, counts) {
+  // Render a stacked horizontal bar where each segment is a fraction
+  // of total runs colored by outcome. Empty counts → nothing rendered.
+  const bar = $(elementId);
+  if (!bar) return;
+  bar.replaceChildren();
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  if (total === 0) {
+    bar.appendChild(el("span", { className: "muted", text: "(no runs)" }));
+    return;
+  }
+  // Order: succeeded first (it's the good one), then failures.
+  const order = ["succeeded", "max_turns", "inference_error",
+    "tool_auth_error", "no_tool_calls", "mcp_init_failed", "other"];
+  for (const kind of order) {
+    const n = counts[kind] || 0;
+    if (n === 0) continue;
+    const pct = (n / total) * 100;
+    const seg = el("div", {
+      className: "outcome-seg outcome-" + kind,
+      attrs: {
+        style: `width: ${pct.toFixed(2)}%`,
+        title: `${outcomeLabel(kind)}: ${n} (${pct.toFixed(0)}%)`,
+      },
+      text: `${n}`,
+    });
+    bar.appendChild(seg);
+  }
+}
+
+// ─── End Tier A helpers ────────────────────────────────────────────────
+
 function fillPanel(pathName, runs) {
   const pre = `sv-${pathName}`;
   const med = {
@@ -1089,6 +1242,12 @@ function fillPanel(pathName, runs) {
   $(`${pre}-input`).textContent = med.input.toLocaleString();
   $(`${pre}-turns`).textContent = med.turns || "—";
   $(`${pre}-cost`).textContent = med.cost ? `$${med.cost.toFixed(3)}` : "—";
+
+  // Tier A: cache-hit ratio + wall-clock (shown as secondary panel-meta).
+  const cacheEl = $(`${pre}-cache`);
+  const durEl = $(`${pre}-duration`);
+  if (cacheEl) cacheEl.textContent = formatCacheHit(runs);
+  if (durEl) durEl.textContent = formatDuration(medianOf(runs, "duration_ms"));
 
   const tools = $(`${pre}-tools`);
   tools.replaceChildren();
@@ -1626,6 +1785,16 @@ async function showSummary() {
       el("div", { className: "ps-bar mcp",    attrs: { style: `width: ${Math.max(mcpPct, 4).toFixed(1)}%` } }),
     );
     const meterCell = el("div", { className: multClass, text: multText });
+    // Tier A: confidence chip — small badge next to the multiplier so
+    // a 2× ratio off N=3 doesn't read as a hard claim.
+    if (s.confidence === "low") {
+      const chip = el("span", {
+        className: "confidence-chip low",
+        attrs: { title: s.confidence_reason || "Low confidence" },
+        text: "low conf.",
+      });
+      meterCell.appendChild(chip);
+    }
     bars.appendChild(el("li", {}, nameCell, barsCell, meterCell));
   }
 
@@ -1660,6 +1829,14 @@ async function showSummary() {
   };
   renderBullets("framework-native-bullets", analysis.framework_native_wins);
   renderBullets("framework-mcp-bullets", analysis.framework_mcp_wins);
+
+  // Tier A: outcome rollup + cache rollup
+  renderOutcomeBar("outcomes-native-bar", analysis.native_outcomes_total || {});
+  renderOutcomeBar("outcomes-mcp-bar", analysis.mcp_outcomes_total || {});
+  $("cache-native").textContent =
+    formatPct(analysis.native_cache_hit_ratio);
+  $("cache-mcp").textContent =
+    formatPct(analysis.mcp_cache_hit_ratio);
 
   // Caveats
   const caveatsList = $("summary-caveats");
