@@ -406,6 +406,7 @@ async function startRun() {
   runStartTime = Date.now();
   state._pollEventCount = 0;
   state._pollDoneRuns = 0;
+  state._seenRunKeys = new Set();
   if (pollIntervalId) clearInterval(pollIntervalId);
   pollIntervalId = setInterval(pollForCompletion, 5000);
 
@@ -514,6 +515,7 @@ async function startFreeformRun() {
   runStartTime = Date.now();
   state._pollEventCount = 0;
   state._pollDoneRuns = 0;
+  state._seenRunKeys = new Set();
   state._freeformActive = true;
   if (pollIntervalId) clearInterval(pollIntervalId);
   pollIntervalId = setInterval(pollForCompletion, 5000);
@@ -851,6 +853,13 @@ function handleEvent(ev, onRunComplete) {
         `Scenario ${ev.scenario_id} · ${ev.path} run ${ev.run_index}/${ev.total_runs}`;
       break;
     case "run_complete": {
+      // Dedupe across the SSE stream and the /api/run/status poller —
+      // both feed handleEvent and would otherwise double-push the same
+      // run into the bucket. The natural id is (scenario, path, index).
+      const evKey = `${ev.scenario_id}|${ev.path}|${ev.run_index}`;
+      state._seenRunKeys = state._seenRunKeys || new Set();
+      if (state._seenRunKeys.has(evKey)) break;
+      state._seenRunKeys.add(evKey);
       // Lazy-init the bucket — for freeform runs the scenario isn't in
       // state.scenarios until we hydrate it from the report.
       if (!state.scenarioResults[ev.scenario_id]) {
