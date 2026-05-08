@@ -106,6 +106,22 @@ class RunRequest(BaseModel):
         return self.model or "claude-4-5-sonnet"
 
 
+class ScenarioPayload(BaseModel):
+    """Body of POST/PUT /api/admin/scenarios. Defined at module scope
+    (not inside create_app) so Pydantic v2's TypeAdapter can resolve
+    the forward-reference annotations FastAPI generates when the
+    `from __future__ import annotations` style is in use."""
+    id: str
+    title: str
+    category: str
+    difficulty: str = "medium"  # simple | medium | complex
+    prompt: str
+    expected_operations: list[str] = []
+    success_criteria: dict = {"must_contain": []}
+    notes: str = ""
+    is_active: bool = True
+
+
 class FreeformRunRequest(BaseModel):
     prompt: str
     title: Optional[str] = None
@@ -307,17 +323,6 @@ def create_app(config: AppConfig) -> FastAPI:
                 {"error": "Salesforce login required"}, status_code=401,
             )
         return None
-
-    class ScenarioPayload(BaseModel):
-        id: str
-        title: str
-        category: str
-        difficulty: str = "medium"  # simple | medium | complex
-        prompt: str
-        expected_operations: list[str] = []
-        success_criteria: dict = {"must_contain": []}
-        notes: str = ""
-        is_active: bool = True
 
     @app.get("/api/admin/scenarios")
     async def admin_list_scenarios(request: Request):
