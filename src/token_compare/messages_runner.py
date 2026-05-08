@@ -42,12 +42,17 @@ def _accumulate_usage(acc: dict[str, int], u) -> None:
     acc["cache_creation_input_tokens"] += getattr(u, "cache_creation_input_tokens", 0) or 0
 
 
-def _create_with_retry(client, kwargs, *, retries: int = 1):
-    """One retry on APIError / RateLimitError. Honors Retry-After if present."""
+def _create_with_retry(create_fn, kwargs, *, retries: int = 1):
+    """One retry on APIError / RateLimitError. Honors Retry-After if present.
+
+    `create_fn` is the bound `client.messages.create` or
+    `client.beta.messages.create` callable — passed in so the caller can
+    pick which endpoint shape to hit.
+    """
     attempt = 0
     while True:
         try:
-            return client.messages.create(**kwargs)
+            return create_fn(**kwargs)
         except anthropic.RateLimitError as e:
             if attempt >= retries:
                 raise
@@ -105,12 +110,18 @@ def run_once(
         "model": model,
         "max_tokens": 4096,
     }
+    # The MCP connector lives on `client.beta.messages.create` and requires
+    # an explicit beta opt-in. Native path stays on the GA `client.messages`
+    # endpoint where `tools` is the standard parameter.
     if path == PathName.NATIVE:
         base_kwargs["tools"] = NATIVE_TOOL_DEFS
+        messages_create = client.messages.create
     else:
         base_kwargs["mcp_servers"] = build_mcp_servers(
             mcp_template_path, sf_access_token=sf_token["access_token"],
         )
+        base_kwargs["betas"] = ["mcp-client-2025-04-04"]
+        messages_create = client.beta.messages.create
 
     usage_acc = {
         "input_tokens": 0, "output_tokens": 0,
@@ -157,9 +168,16 @@ def run_once(
             num_turns += 1
             kwargs = {**base_kwargs, "messages": messages}
             try:
-                resp = _create_with_retry(client, kwargs)
+                resp = _create_with_retry(messages_create, kwargs)
             except anthropic.APIError as e:
                 error = f"inference error: {e}"
+                break
+            except Exception as e:
+                # Catch-all so structural bugs (TypeError on bad kwargs,
+                # network exceptions outside the SDK's APIError hierarchy,
+                # etc.) surface as a recorded run failure instead of
+                # silently terminating the benchmark.
+                error = f"inference call failed ({type(e).__name__}): {e}"
                 break
 
             _accumulate_usage(usage_acc, resp.usage)

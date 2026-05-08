@@ -225,7 +225,14 @@ def create_app(config: AppConfig) -> FastAPI:
                 _current_run["report_path"] = report_id
                 queue.put_nowait({"kind": "report_written", "report_id": report_id})
             except Exception as e:
-                queue.put_nowait({"kind": "error", "message": str(e)})
+                err_evt = {
+                    "kind": "error",
+                    "message": f"{type(e).__name__}: {e}",
+                }
+                queue.put_nowait(err_evt)
+                # Also stash on the polling cache so /api/run/status surfaces
+                # the failure to clients that lost the SSE stream.
+                _current_run["events"].append(err_evt)
             finally:
                 _current_run["active"] = False
                 queue.put_nowait(None)

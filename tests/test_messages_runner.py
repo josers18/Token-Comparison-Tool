@@ -126,7 +126,9 @@ def test_mcp_path_passes_mcp_servers_not_tools(monkeypatch, tmp_path):
         usage={"input_tokens": 10, "output_tokens": 1},
     )
     fake_client = MagicMock()
-    fake_client.messages.create.return_value = r
+    # MCP path goes through client.beta.messages.create (mcp_servers param
+    # only exists on the beta endpoint in anthropic SDK 0.100+).
+    fake_client.beta.messages.create.return_value = r
     monkeypatch.setattr(
         "token_compare.messages_runner.get_client_for_model",
         lambda mid: fake_client,
@@ -139,10 +141,13 @@ def test_mcp_path_passes_mcp_servers_not_tools(monkeypatch, tmp_path):
         sf_token={"access_token": "TOK", "instance_url": "https://x"},
     )
 
-    kwargs = fake_client.messages.create.call_args.kwargs
+    kwargs = fake_client.beta.messages.create.call_args.kwargs
     assert "mcp_servers" in kwargs
     assert kwargs["mcp_servers"][0]["authorization_token"] == "TOK"
     assert "tools" not in kwargs
+    assert kwargs.get("betas") == ["mcp-client-2025-04-04"]
+    # Native-path endpoint must NOT have been called for this run.
+    fake_client.messages.create.assert_not_called()
 
 
 def test_mcp_path_flags_unresolved_tool_use(monkeypatch, tmp_path):
@@ -164,7 +169,8 @@ def test_mcp_path_flags_unresolved_tool_use(monkeypatch, tmp_path):
         usage={"input_tokens": 10, "output_tokens": 5},
     )
     fake_client = MagicMock()
-    fake_client.messages.create.return_value = r
+    # MCP path → beta.messages.create
+    fake_client.beta.messages.create.return_value = r
     monkeypatch.setattr(
         "token_compare.messages_runner.get_client_for_model",
         lambda mid: fake_client,
