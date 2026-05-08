@@ -465,3 +465,64 @@ def test_load_report_uploaded_markdown(client, tmp_path):
     assert body["ok"] is True
     assert body["scenario_count"] == 1
     assert body["source"].startswith("upload:")
+
+
+def test_post_run_accepts_models_list(client, monkeypatch):
+    from token_compare.models import RunResult, PathName
+    from token_compare import db
+    async def _mock_get_sf_token(sid):
+        return {"access_token": "T", "instance_url": "https://x",
+                "issued_at": 0, "expires_at": 9999999999}
+    monkeypatch.setattr(db, "get_sf_token", _mock_get_sf_token)
+
+    def fake_run_once(scenario, path, **kw):
+        return RunResult(
+            path=path, input_tokens=1, output_tokens=1,
+            cache_read_input_tokens=0, total_cost_usd=0.01,
+            num_turns=1, duration_ms=1, tool_calls=[],
+            succeeded=True, raw_json={},
+        )
+
+    from unittest.mock import patch
+    with patch("token_compare.benchmark.run_once", side_effect=fake_run_once), \
+         patch("token_compare.benchmark._git_sha", return_value="abc"):
+        with client.stream(
+            "POST", "/api/run",
+            json={"scenario_ids": ["sA"], "runs_per_path": 1,
+                  "models": ["claude-4-5-sonnet", "claude-3-haiku"],
+                  "operator": "me", "org_name": "o"},
+        ) as resp:
+            chunks = "".join(list(resp.iter_text()))
+
+    assert "benchmark_complete" in chunks
+    assert "claude-4-5-sonnet" in chunks
+    assert "claude-3-haiku" in chunks
+
+
+def test_post_run_legacy_model_string_still_works(client, monkeypatch):
+    """Old clients sending model: 'sonnet' should still work."""
+    from token_compare.models import RunResult
+    from token_compare import db
+    async def _mock_get_sf_token(sid):
+        return {"access_token": "T", "instance_url": "https://x",
+                "issued_at": 0, "expires_at": 9999999999}
+    monkeypatch.setattr(db, "get_sf_token", _mock_get_sf_token)
+
+    def fake_run_once(scenario, path, **kw):
+        return RunResult(
+            path=path, input_tokens=1, output_tokens=1,
+            cache_read_input_tokens=0, total_cost_usd=0.01,
+            num_turns=1, duration_ms=1, tool_calls=[],
+            succeeded=True, raw_json={},
+        )
+    from unittest.mock import patch
+    with patch("token_compare.benchmark.run_once", side_effect=fake_run_once), \
+         patch("token_compare.benchmark._git_sha", return_value="abc"):
+        with client.stream(
+            "POST", "/api/run",
+            json={"scenario_ids": ["sA"], "runs_per_path": 1,
+                  "model": "claude-4-5-sonnet",
+                  "operator": "me", "org_name": "o"},
+        ) as resp:
+            chunks = "".join(list(resp.iter_text()))
+    assert "benchmark_complete" in chunks

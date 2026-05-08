@@ -84,6 +84,12 @@ class RunRequest(BaseModel):
     scenario_ids: list[Optional[str]] = []
     runs_per_path: Optional[int] = None
     model: Optional[str] = None
+    # `models` is the Tier B sweep list — the SPA sends it when the user
+    # ticks more than one checkbox in the model picker. `None` (not sent)
+    # falls back to the legacy `model` string; an empty list also falls
+    # through. Keeping both fields means the legacy single-model client
+    # contract still works unchanged.
+    models: Optional[list[str]] = None
     # Operator + org_name are descriptive labels stored on the report row
     # only — no semantic dependence. Default to placeholders so a
     # request that forgets to include them doesn't 422; the SPA sends
@@ -102,8 +108,18 @@ class RunRequest(BaseModel):
     def resolved_timeout_s(self) -> int:
         return _coerce_int(self.timeout_s, 300)
 
+    def resolved_models(self) -> list[str]:
+        if self.models:
+            # filter out None/empty strings the SPA may serialize
+            cleaned = [m for m in self.models if m]
+            if cleaned:
+                return cleaned
+        if self.model:
+            return [self.model]
+        return ["claude-4-5-sonnet"]
+
     def resolved_model(self) -> str:
-        return self.model or "claude-4-5-sonnet"
+        return self.resolved_models()[0]
 
 
 class ScenarioPayload(BaseModel):
@@ -131,6 +147,8 @@ class FreeformRunRequest(BaseModel):
     scenario_id: Optional[str] = None
     runs_per_path: Optional[int] = None
     model: Optional[str] = None
+    # See RunRequest.models — same back-compat semantics here.
+    models: Optional[list[str]] = None
     operator: str = "local user"
     org_name: str = "(local org)"
     max_turns: Optional[int] = None
@@ -139,8 +157,17 @@ class FreeformRunRequest(BaseModel):
     def resolved_runs_per_path(self) -> int:
         return _coerce_int(self.runs_per_path, 1)
 
+    def resolved_models(self) -> list[str]:
+        if self.models:
+            cleaned = [m for m in self.models if m]
+            if cleaned:
+                return cleaned
+        if self.model:
+            return [self.model]
+        return ["claude-4-5-sonnet"]
+
     def resolved_model(self) -> str:
-        return self.model or "claude-4-5-sonnet"
+        return self.resolved_models()[0]
 
     def resolved_max_turns(self) -> int:
         return _coerce_int(self.max_turns, 30)
@@ -157,6 +184,11 @@ def _event_to_dict(e: ProgressEvent) -> dict:
     if e.total_runs is not None: d["total_runs"] = e.total_runs
     if e.run_result is not None:
         d["run_result"] = e.run_result.model_dump(exclude={"raw_json"})
+    # Tier B: per-event model tag so the SPA can split the stepper into
+    # one column per swept model. Additive — events emitted before the
+    # per-model loop tagged them (legacy paths) simply omit the key.
+    if e.model:
+        d["model"] = e.model
     return d
 
 
@@ -582,13 +614,17 @@ def create_app(config: AppConfig) -> FastAPI:
                     if e.kind == "run_complete" and e.run_result is not None:
                         # Best-effort fire-and-forget insert. We schedule it on
                         # the loop because run_benchmark is in an executor.
+                        # Prefer the per-event model (Task 2.2's per-model
+                        # loop tags each run_complete with the actual model
+                        # used) so the runs row carries the truth, not just
+                        # the report's primary model.
                         asyncio.run_coroutine_threadsafe(
                             _db.insert_run(
                                 report_id=report_id,
                                 scenario_id=e.scenario_id,
                                 path=e.path.value,
                                 run_index=e.run_index,
-                                model=options.model,
+                                model=e.model or options.model,
                                 result=e.run_result.model_dump(),
                             ),
                             loop,
@@ -664,6 +700,7 @@ def create_app(config: AppConfig) -> FastAPI:
 
         options = BenchmarkOptions(
             model=model,
+            models=req.resolved_models(),
             max_turns=req.resolved_max_turns(),
             timeout_s=req.resolved_timeout_s(),
             runs_per_path=req.resolved_runs_per_path(),
@@ -722,6 +759,7 @@ def create_app(config: AppConfig) -> FastAPI:
 
         options = BenchmarkOptions(
             model=model,
+            models=req.resolved_models(),
             max_turns=req.resolved_max_turns(),
             timeout_s=req.resolved_timeout_s(),
             runs_per_path=req.resolved_runs_per_path(),
