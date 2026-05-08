@@ -62,60 +62,77 @@ def run_benchmark(
     options: BenchmarkOptions,
     on_progress: Optional[Callable[[ProgressEvent], None]] = None,
 ) -> BenchmarkResult:
+    from token_compare.models import ModelRunBucket
     emit = on_progress or (lambda e: None)
     started_at = _now_iso()
     emit(ProgressEvent(kind="benchmark_start"))
 
+    sweep_models = options.models or [options.model]
     results: list[ScenarioResult] = []
-    total_runs_per_scenario = options.runs_per_path * 2
+    total_runs_per_scenario = options.runs_per_path * 2 * len(sweep_models)
 
     for scenario in scenarios:
         emit(ProgressEvent(kind="scenario_start", scenario_id=scenario.id,
                            total_runs=total_runs_per_scenario))
 
-        first_is_mcp = random.random() < 0.5
-        order: list[PathName] = []
-        for _ in range(options.runs_per_path):
-            if first_is_mcp:
-                order.extend([PathName.MCP, PathName.NATIVE])
-            else:
-                order.extend([PathName.NATIVE, PathName.MCP])
+        runs_by_model: dict[str, ModelRunBucket] = {}
+        all_native: list[RunResult] = []
+        all_mcp: list[RunResult] = []
 
-        native_runs: list[RunResult] = []
-        mcp_runs: list[RunResult] = []
+        for model_name in sweep_models:
+            first_is_mcp = random.random() < 0.5
+            order: list[PathName] = []
+            for _ in range(options.runs_per_path):
+                if first_is_mcp:
+                    order.extend([PathName.MCP, PathName.NATIVE])
+                else:
+                    order.extend([PathName.NATIVE, PathName.MCP])
 
-        for i, path in enumerate(order, start=1):
-            emit(ProgressEvent(kind="run_start", scenario_id=scenario.id,
-                               path=path, run_index=i,
-                               total_runs=total_runs_per_scenario))
-            r = run_once(
-                scenario, path,
-                model=options.model,
-                max_turns=options.max_turns,
-                timeout_s=options.timeout_s,
-                mcp_template_path=options.mcp_template_path,
-                sf_token=options.sf_token,
+            native_runs: list[RunResult] = []
+            mcp_runs: list[RunResult] = []
+
+            for i, path in enumerate(order, start=1):
+                emit(ProgressEvent(
+                    kind="run_start", scenario_id=scenario.id, path=path,
+                    run_index=i, total_runs=options.runs_per_path * 2,
+                    model=model_name,
+                ))
+                r = run_once(
+                    scenario, path,
+                    model=model_name,
+                    max_turns=options.max_turns,
+                    timeout_s=options.timeout_s,
+                    mcp_template_path=options.mcp_template_path,
+                    sf_token=options.sf_token,
+                )
+                (native_runs if path == PathName.NATIVE else mcp_runs).append(r)
+                emit(ProgressEvent(
+                    kind="run_complete", scenario_id=scenario.id, path=path,
+                    run_index=i, total_runs=options.runs_per_path * 2,
+                    run_result=r, model=model_name,
+                ))
+
+            runs_by_model[model_name] = ModelRunBucket(
+                native_runs=native_runs, mcp_runs=mcp_runs,
             )
-            (native_runs if path == PathName.NATIVE else mcp_runs).append(r)
-            emit(ProgressEvent(kind="run_complete", scenario_id=scenario.id,
-                               path=path, run_index=i,
-                               total_runs=total_runs_per_scenario, run_result=r))
+            all_native.extend(native_runs)
+            all_mcp.extend(mcp_runs)
 
-        sr = ScenarioResult(scenario_id=scenario.id,
-                            native_runs=native_runs, mcp_runs=mcp_runs)
-        results.append(sr)
+        results.append(ScenarioResult(
+            scenario_id=scenario.id,
+            native_runs=all_native, mcp_runs=all_mcp,
+            runs_by_model=runs_by_model,
+        ))
         emit(ProgressEvent(kind="scenario_complete", scenario_id=scenario.id))
 
     finished_at = _now_iso()
     emit(ProgressEvent(kind="benchmark_complete"))
 
     return BenchmarkResult(
-        started_at=started_at,
-        finished_at=finished_at,
-        operator=options.operator,
-        model=options.model,
-        org_name=options.org_name,
-        tool_commit=_git_sha(),
+        started_at=started_at, finished_at=finished_at,
+        operator=options.operator, model=options.model,
+        models=sweep_models,
+        org_name=options.org_name, tool_commit=_git_sha(),
         runs_per_path=options.runs_per_path,
         scenarios=results,
     )

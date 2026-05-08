@@ -107,3 +107,81 @@ def test_progress_event_carries_model():
     from token_compare.benchmark import ProgressEvent
     e = ProgressEvent(kind="run_start", model="sonnet")
     assert e.model == "sonnet"
+
+
+def test_run_benchmark_loops_over_models(monkeypatch, tmp_path):
+    from token_compare.benchmark import (
+        run_benchmark, BenchmarkOptions, ProgressEvent,
+    )
+    from token_compare.models import (
+        Scenario, SuccessCriteria, RunResult, PathName,
+    )
+    from token_compare import benchmark as bm
+
+    calls = []
+
+    def fake_run_once(scenario, path, **kw):
+        calls.append((scenario.id, path.value, kw["model"]))
+        return RunResult(
+            path=path, input_tokens=1, output_tokens=1,
+            cache_read_input_tokens=0, total_cost_usd=0.01,
+            num_turns=1, duration_ms=1, tool_calls=[],
+            succeeded=True, raw_json={},
+        )
+    monkeypatch.setattr(bm, "run_once", fake_run_once)
+
+    s = Scenario(id="sA", title="A", category="c", difficulty="simple",
+                 prompt="x", success_criteria=SuccessCriteria())
+    opts = BenchmarkOptions(
+        model="sonnet", models=["sonnet", "opus"], max_turns=5,
+        timeout_s=10, runs_per_path=1,
+        mcp_template_path=tmp_path / "x.json",
+        operator="me", org_name="o", sf_token={},
+    )
+    events = []
+    result = run_benchmark([s], opts, events.append)
+
+    # 1 scenario × 2 models × 1 run/path × 2 paths = 4 run_once calls
+    assert len(calls) == 4
+    models_called = {c[2] for c in calls}
+    assert models_called == {"sonnet", "opus"}
+
+    # Each progress event for run_start/run_complete carries a model.
+    run_events = [e for e in events if e.kind in {"run_start", "run_complete"}]
+    assert all(e.model in {"sonnet", "opus"} for e in run_events)
+
+    # The cube exists.
+    assert result.models == ["sonnet", "opus"]
+    sr = result.scenarios[0]
+    assert set(sr.runs_by_model.keys()) == {"sonnet", "opus"}
+    assert len(sr.runs_by_model["sonnet"].native_runs) == 1
+    assert len(sr.runs_by_model["opus"].mcp_runs) == 1
+
+
+def test_run_benchmark_single_model_back_compat(monkeypatch, tmp_path):
+    """Old call sites that pass only `model` (no models) still work."""
+    from token_compare.benchmark import run_benchmark, BenchmarkOptions
+    from token_compare.models import (
+        Scenario, SuccessCriteria, RunResult, PathName,
+    )
+    from token_compare import benchmark as bm
+
+    def fake_run_once(scenario, path, **kw):
+        return RunResult(
+            path=path, input_tokens=1, output_tokens=1,
+            cache_read_input_tokens=0, total_cost_usd=0.01,
+            num_turns=1, duration_ms=1, tool_calls=[],
+            succeeded=True, raw_json={},
+        )
+    monkeypatch.setattr(bm, "run_once", fake_run_once)
+
+    s = Scenario(id="sA", title="A", category="c", difficulty="simple",
+                 prompt="x", success_criteria=SuccessCriteria())
+    opts = BenchmarkOptions(
+        model="sonnet", max_turns=5, timeout_s=10, runs_per_path=1,
+        mcp_template_path=tmp_path / "x.json", operator="me",
+        org_name="o", sf_token={},
+    )
+    result = run_benchmark([s], opts, lambda e: None)
+    assert result.models == ["sonnet"]
+    assert "sonnet" in result.scenarios[0].runs_by_model
