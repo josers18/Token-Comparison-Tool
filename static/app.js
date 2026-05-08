@@ -85,13 +85,15 @@ async function init() {
     const btn = $("sf-login-btn");
     const hint = $("sf-login-hint");
     btn.disabled = true;
-    hint.textContent = "Waiting for browser login…";
+    hint.textContent = "Redirecting to Salesforce…";
     try {
       const res = await fetch("/api/sf/login", { method: "POST" });
       const body = await res.json();
-      if (body.ok) {
-        hint.textContent = "Logged in. Reloading…";
-        setTimeout(() => location.reload(), 500);
+      if (body.ok && body.authorize_url) {
+        // Server-side flow returns the authorize URL; navigate the user there.
+        // After OAuth completes, /callback writes the token into the session
+        // row and the user can return to this tab.
+        window.location.href = body.authorize_url;
       } else {
         hint.textContent = "Login failed: " + (body.error || "unknown error");
         btn.disabled = false;
@@ -114,10 +116,13 @@ async function loadPreflight() {
     banner.textContent = "● preflight failed";
     banner.className = "status err";
   }
-  const needsLogin = state.preflight?.checks?.sf_oauth_reachable === false
-                   && state.preflight?.checks?.claude_installed
-                   && state.preflight?.checks?.claude_logged_in;
-  $("sf-login-row").hidden = !needsLogin;
+  // On Heroku the preflight only verifies env config (Inference, Postgres,
+  // ECA, MCP template, SESSION_SECRET). The actual "is the user logged in?"
+  // signal comes from /api/run returning 401, which we surface separately.
+  // Show the Connect Salesforce button whenever the env is healthy enough
+  // to attempt a login — i.e. the ECA is configured.
+  const ecaConfigured = state.preflight?.checks?.sf_eca_configured === true;
+  $("sf-login-row").hidden = !ecaConfigured;
 }
 
 async function loadScenarios() {
