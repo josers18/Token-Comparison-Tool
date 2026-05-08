@@ -1,47 +1,34 @@
 # Token Comparison Tool
 
-> **Get started in 5 steps**
+> **Use it on Heroku**
 >
-> **1.** Clone the repository
+> The hosted instance is at:
+> <https://token-comparison-tool-cb60c8f1dcc3.herokuapp.com/>
 >
-> ```bash
-> git clone https://github.com/josers18/Token-Comparison-Tool.git
-> cd Token-Comparison-Tool
-> ```
+> 1. Click **Connect Salesforce** to authorize via OAuth (the ECA's
+>    callback list must include the Heroku URL — done by repo owner).
+> 2. Pick a **model** from the dropdown — `claude-4-5-haiku` (cheap),
+>    `claude-4-5-sonnet` (default), or `claude-opus-4-5` (premium).
+> 3. Run the catalog, run a free-format prompt, or load a saved report.
 >
-> **2.** Make sure prerequisites are installed and authenticated
->
-> ```bash
-> python3 --version          # need 3.11+
-> claude --version           # Claude Code installed
-> claude auth status         # logged in
-> sf org list                # Salesforce CLI authenticated to your org
-> ```
->
-> **3.** Configure your Salesforce External Client App credentials
+> **Deploy your own**
 >
 > ```bash
-> cp .env.example .env.local
-> # open .env.local and fill in SF_CLIENT_ID and SF_CLIENT_SECRET
-> # from your ECA (must have mcp_api, cdp_api, refresh_token scopes
-> # and http://localhost:8000/callback as a callback URL)
+> heroku create your-app-name
+> heroku addons:create heroku-postgresql:essential-0 -a your-app-name
+> heroku addons:create heroku-inference:claude-4-5-haiku  --as HEROKU_INFERENCE_TEAL   -a your-app-name
+> heroku addons:create heroku-inference:claude-4-5-sonnet --as INFERENCE              -a your-app-name
+> heroku addons:create heroku-inference:claude-opus-4-5   --as HEROKU_INFERENCE_COBALT -a your-app-name
+> heroku config:set SESSION_SECRET=$(python3 -c 'import secrets;print(secrets.token_hex(32))') \
+>                   SF_CLIENT_ID=... SF_CLIENT_SECRET=... \
+>                   SF_LOGIN_URL=https://login.salesforce.com \
+>                   SF_REDIRECT_URI=https://your-app-name.herokuapp.com/callback \
+>                   -a your-app-name
+> git push heroku main
 > ```
 >
-> **4.** Launch the app
->
-> ```bash
-> ./run.sh
-> ```
->
-> **5.** Open <http://localhost:8000>, click **Connect Salesforce** to
-> authorize via OAuth, then choose how to start:
->
-> - **Run benchmark** at the top — runs the full scenario catalog
-> - **Run free format** — write a custom prompt with your own model /
->   runs / max-turns settings
-> - **Load report** — view a past benchmark in the same UI, either
->   from the dropdown of recent reports or by uploading an
->   `.md` / `.json` file
+> Add `https://your-app-name.herokuapp.com/callback` to your Salesforce
+> ECA's callback URL list.
 
 ---
 
@@ -49,19 +36,18 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-14532D.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009485.svg)](https://fastapi.tiangolo.com/)
 [![Pydantic](https://img.shields.io/badge/Pydantic-2.9+-E92063.svg)](https://docs.pydantic.dev/)
-[![Tests: 81 passing](https://img.shields.io/badge/tests-81%20passing-16A34A.svg)](#testing)
+[![Tests: 80 passing](https://img.shields.io/badge/tests-80%20passing-16A34A.svg)](#testing)
 [![Powered by Claude Code](https://img.shields.io/badge/powered%20by-Claude%20Code-8A3FFC.svg)](https://docs.claude.com/en/docs/claude-code)
 
-A FastAPI + vanilla-JS web tool that benchmarks **token cost** between
+A FastAPI + vanilla-JS web tool hosted on Heroku that benchmarks **token cost** between
 two ways of invoking Salesforce operations from Claude:
 
-- **Path A — Native:** Claude Code calls Salesforce APIs directly via the
-  `sf` CLI. No MCP servers loaded.
-- **Path B — MCP:** Claude Code calls the same operations through the
-  Salesforce-hosted MCP servers (`salesforce_crm` and
-  `data_cloud_queries`).
+- **Path A — Native:** `messages_runner.py` calls Salesforce APIs directly via REST calls
+  (execute_soql, describe_object, list_sobjects, run_dc_query). No MCP servers loaded.
+- **Path B — MCP:** `messages_runner.py` calls the Anthropic Messages API with `mcp_servers` parameter
+  pointing at the Salesforce-hosted MCP gateway for server-side tool resolution.
 
-Both paths run the same prompt against the same model and the same org.
+Both paths run the same prompt against the same model and the same org via Heroku Inference.
 The only axis of variance is the tool provider.
 
 ---
@@ -109,25 +95,25 @@ The two paths share everything except how Claude is given tools.
 ```mermaid
 flowchart LR
     User([Operator])
-    UI[FastAPI + vanilla-JS SPA<br/>localhost:8000]
-    Runner["Shared claude -p runner"]
-    Native["Path A — Native<br/>--allowedTools Bash"]
-    MCP["Path B — MCP<br/>--mcp-config sf-mcp.json"]
-    SfCli["sf CLI<br/>direct REST"]
+    UI[FastAPI + vanilla-JS SPA<br/>Heroku dyno]
+    Runner["messages_runner.py<br/>(Anthropic SDK)"]
+    Native["Path A — Native<br/>tools=[execute_soql, ...]"]
+    MCP["Path B — MCP<br/>mcp_servers=[...]"]
+    SfRest["Direct REST<br/>calls"]
     SfMcp["Salesforce-hosted<br/>MCP gateway"]
     Org[(Salesforce<br/>org / Data Cloud)]
-    Report["Report<br/>reports/&lt;ts&gt;.md"]
+    Report["Report<br/>Postgres rows"]
 
     User -->|prompt| UI
     UI -->|spawn × N| Runner
     Runner -->|same prompt<br/>same model| Native
     Runner -->|same prompt<br/>same model| MCP
-    Native --> SfCli --> Org
+    Native --> SfRest --> Org
     MCP --> SfMcp --> Org
-    Native -->|JSON usage| Runner
-    MCP -->|JSON usage| Runner
+    Native -->|usage object| Runner
+    MCP -->|usage object| Runner
     Runner -->|telemetry| UI
-    UI -->|markdown| Report
+    UI -->|store| Report
 ```
 
 ### Live progress over Server-Sent Events
@@ -137,22 +123,22 @@ sequenceDiagram
     participant UI as Browser
     participant API as FastAPI
     participant Run as run_benchmark()
-    participant Cli as claude -p
+    participant Sdk as Anthropic Messages API
 
     UI->>API: POST /api/run
     API-->>UI: SSE stream open
     API->>Run: spawn (executor)
     loop per scenario
-        Run->>Cli: claude -p <prompt> [Native flags]
-        Cli-->>Run: { usage, modelUsage, ... }
+        Run->>Sdk: messages.create(tools=[...])
+        Sdk-->>Run: { usage, content, ... }
         Run->>API: ProgressEvent(run_complete)
         API-->>UI: data: {...}\n\n
-        Run->>Cli: claude -p <prompt> [MCP flags]
-        Cli-->>Run: { usage, modelUsage, ... }
+        Run->>Sdk: messages.create(mcp_servers=[...])
+        Sdk-->>Run: { usage, content, ... }
         Run->>API: ProgressEvent(run_complete)
         API-->>UI: data: {...}\n\n
     end
-    Run->>API: write_markdown(report)
+    Run->>API: write_report(Postgres)
     API-->>UI: data: { kind: "report_written" }
 ```
 
@@ -205,52 +191,53 @@ identically — no special-case rendering paths.
 | Dependency | How to verify |
 |---|---|
 | Python 3.11+ | `python3 --version` |
-| [Claude Code](https://docs.claude.com/en/docs/claude-code) | `claude --version` and `claude auth status` |
-| [Salesforce CLI](https://developer.salesforce.com/tools/salesforcecli) | `sf org list` |
-| Salesforce ECA with `mcp_api cdp_api refresh_token` scopes and `http://localhost:8000/callback` as a callback URL | See `.env.example` |
+| Heroku CLI | `heroku --version`, `heroku auth:whoami` |
+| A Salesforce ECA with `mcp_api`, `cdp_api`, `refresh_token` scopes and `https://<your-heroku-app>.herokuapp.com/callback` on its callback URL list | See `.env.example` |
 
 ## Project layout
 
 ```
 .
-├── README.md                  ← you are here
-├── LICENSE                    ← MIT
-├── pyproject.toml             ← Python package + dev deps
-├── run.sh                     ← venv setup + uvicorn launcher
-├── .env.example               ← OAuth ECA template (copy to .env.local)
+├── README.md
+├── LICENSE
+├── pyproject.toml
+├── requirements.txt           ← Heroku buildpack manifest
+├── Procfile                   ← web: uvicorn token_compare.api:app ...
+├── runtime.txt                ← python-3.11.10
+├── app.json                   ← Heroku addon manifest
+├── .env.example
 ├── config/
-│   ├── README.md
-│   └── sf-mcp.json            ← MCP server config for Path B
-├── scenarios/                 ← scenario YAML catalog
-│   ├── s01_soql_top_accounts.yaml
-│   ├── s02_unified_profile_lookup.yaml
-│   ├── s03_trade_volume_breakdown.yaml
-│   ├── s04_open_cases_by_priority.yaml
-│   ├── s05_opportunity_pipeline_report.yaml
-│   └── s06_customer_360_displaytech.yaml
-├── src/token_compare/         ← backend
-│   ├── api.py                 ← FastAPI app + SSE + endpoints
+│   └── sf-mcp.json            ← upstream MCP server URLs
+├── scenarios/                 ← scenario YAML catalog (s01–s06)
+├── src/token_compare/
+│   ├── api.py                 ← FastAPI app, SSE, OAuth callback, /api/models
+│   ├── messages_runner.py     ← Anthropic Messages API tool-use loop
 │   ├── benchmark.py           ← run_benchmark() orchestrator
-│   ├── runner.py              ← shared claude -p invoker
+│   ├── native_tools.py        ← REST-backed Native-path tools
+│   ├── mcp_path.py            ← mcp_servers payload builder
+│   ├── inference_client.py    ← Heroku Inference Anthropic client factory
+│   ├── pricing.py             ← per-model token-price table
+│   ├── db.py                  ← Postgres pool + sessions/reports/runs/audit DAOs
+│   ├── sessions.py            ← signed-cookie session id helpers
+│   ├── sf_auth.py             ← OAuth 2.1 + PKCE
+│   ├── legacy_parser.py       ← parse_claude_json for old report uploads
 │   ├── analysis.py            ← trace + executive summary
 │   ├── report.py              ← markdown writer
 │   ├── report_loader.py       ← reverse parser (.md / .json → BenchmarkResult)
 │   ├── recommendations.py
 │   ├── scenarios.py
 │   ├── preflight.py
-│   ├── mcp_config.py
-│   ├── sf_auth.py             ← OAuth 2.1 + PKCE
 │   └── models.py              ← Pydantic types
 ├── static/                    ← single-page app
 │   ├── index.html             ← catalog + freeform + load-report cards
-│   ├── styles.css             ← editorial light theme
-│   ├── app.js                 ← SPA controller (no innerHTML)
-│   └── chart.min.js           ← vendored Chart.js (legacy fallback)
+│   ├── styles.css
+│   ├── app.js                 ← SPA controller
+│   └── chart.min.js
 ├── docs/
-│   ├── screenshots/           ← README images
-│   └── superpowers/           ← original design spec + impl plan
-├── reports/                   ← generated reports (.md + .json sidecars; gitignored)
-└── tests/                     ← pytest suite (81 tests)
+│   ├── superpowers/specs/     ← original local-tool spec + heroku-port spec
+│   └── superpowers/plans/     ← original local-tool plan + heroku-port plan
+├── reports/                   ← legacy on-disk reports (pre-Heroku); .gitignored
+└── tests/                     ← pytest suite (~80 tests)
 ```
 
 ## Adding a scenario
@@ -276,35 +263,11 @@ notes: |
 
 ## How it works under the hood
 
-1. **One runner, two flag sets.** `src/token_compare/runner.py` builds a
-   `claude -p` command line. Path A passes `--allowedTools Bash`; Path B
-   passes `--mcp-config config/sf-mcp.json --allowedTools "mcp__*"`.
-   Same prompt, same model, same org, same `--max-turns` cap. Path order
-   is randomized per scenario to neutralize first-mover effects.
-2. **Telemetry comes from `claude -p --output-format json`.** Each run's
-   stdout is a JSON array; the final `result` event has `modelUsage`
-   (preferred) or `usage` (fallback) with input/output/cache tokens and
-   `total_cost_usd`. The runner aggregates `modelUsage` across all
-   turns, not just the last one.
-3. **Robustness.** stdout is captured to a temp file (not a pipe — pipes
-   truncate at ~192KB on macOS for large MCP metadata responses). The
-   parser still extracts JSON even when `claude` exits non-zero (e.g.,
-   `--max-turns` reached). Punt responses ("I apologize...") are flagged
-   as failed even when `is_error=false`.
-4. **Reports live in `reports/`.** Each completed benchmark writes both
-   `benchmark-YYYY-MM-DD-HHMM.md` (human-readable) and a
-   `benchmark-YYYY-MM-DD-HHMM.json` sidecar (clean reload format). Ten
-   most recent are retained; pruning drops both files together. The
-   full audit log of every `claude -p` invocation goes to
-   `reports/commands.log` (also gitignored).
-5. **Loading old reports.** The "Load saved report" card on the
-   catalog reads from `reports/` server-side or accepts a file
-   upload. JSON sidecars deserialize directly; older `.md`-only
-   reports are reverse-parsed by walking the Appendix
-   `<details>` blocks and feeding each embedded raw_json back through
-   the same `parse_claude_json()` the live runner uses, recovering an
-   identical `RunResult`. Path traversal is blocked at the API
-   boundary — names must match `benchmark-*.md`.
+1. **One runner, two tool surfaces.** `messages_runner.py` calls `anthropic.messages.create(...)` against Heroku Inference. Native path passes `tools=NATIVE_TOOL_DEFS` and dispatches each tool_use block to direct REST calls (`execute_soql` etc). MCP path passes `mcp_servers=[...]` and lets the Inference connector resolve tools server-side. Same prompt, same model, same `--max-turns` cap. Path order is still randomized per scenario.
+2. **Telemetry is the SDK `usage` object.** Each `messages.create()` returns `usage.input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`. The runner aggregates across turns (the same way the legacy `modelUsage` aggregate worked) and computes cost from a per-1M-token price table in `pricing.py`.
+3. **Backups and retries.** On `anthropic.APIError` / `RateLimitError` the runner retries once (honoring `Retry-After`); after that the run is recorded as a failed `RunResult` with the error message and the rest of the benchmark continues. Max-turns and the new MCP-unresolved-tool-use signals also map cleanly into the existing failure semantics.
+4. **Reports live in Postgres.** Each completed benchmark gets a `reports` row keyed by an opaque `rpt_<hex>` id; per-turn `runs` rows stream in as the SSE updates. The 10 most recent reports are listed in the catalog UI.
+5. **Loading old reports.** The "Load saved report" card reads from the `reports` table on the dyno. JSON uploads still work for cross-deploy portability — they hit the same legacy `parse_claude_json` path so reports written by the original local tool can still be viewed.
 
 ## HTTP API reference
 
@@ -313,21 +276,20 @@ want to script the tool from the command line.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/preflight` | Verify Claude Code, sf CLI, MCP config, and Salesforce OAuth are ready |
+| `GET` | `/api/preflight` | Verify Heroku Inference, Postgres, and Salesforce OAuth are ready |
+| `GET` | `/api/models` | Return the 3 Inference model_ids (haiku, sonnet, opus) |
 | `GET` | `/api/scenarios` | Return the scenario catalog (from `scenarios/*.yaml`) |
 | `POST` | `/api/run` | Start a catalog benchmark; streams SSE events for live progress |
 | `POST` | `/api/run/freeform` | Start a one-off benchmark with a custom prompt; streams SSE events |
 | `GET` | `/api/run/status` | Polling fallback for SSE — current state + accumulated events |
-| `GET` | `/api/reports` | List the 10 most recent reports on disk |
-| `GET` | `/api/reports/latest` | Download the latest `.md` report (also handles `HEAD`) |
-| `GET` | `/api/reports/latest/data` | Hydrate the latest run's `BenchmarkResult` JSON |
-| `GET` | `/api/reports/latest/summary` | Auto-generated executive summary for the latest run |
-| `GET` | `/api/reports/{name}/data` | Load a specific report by file name (path-traversal-safe) |
+| `GET` | `/api/reports` | List the 10 most recent reports from Postgres |
+| `GET` | `/api/reports/{report_id}/data` | Load a specific report by opaque `rpt_<hex>` id |
+| `GET` | `/api/reports/{report_id}/summary` | Auto-generated executive summary for the report |
 | `POST` | `/api/reports/load` | Multipart upload an `.md` or `.json` report and load it |
 | `GET` | `/api/scenarios/{id}/trace` | Turn-by-turn trace + explanation paragraph for the most recently loaded benchmark's scenario |
 | `POST` | `/api/sf/login` | Trigger the OAuth 2.1 + PKCE browser flow; blocks until callback |
 | `POST` | `/api/sf/logout` | Clear the cached access token |
-| `GET` | `/callback` | OAuth redirect URI handler |
+| `GET` | `/callback` | OAuth redirect URI handler (Heroku URL) |
 
 ## Testing
 
@@ -335,29 +297,25 @@ want to script the tool from the command line.
 .venv/bin/python -m pytest tests/ -q
 ```
 
-81 tests, ~0.3s. Coverage spans the runner (Bash + MCP shapes, JSON
-parsing, punt detection, max-turns handling, OAuth callback flow), the
-benchmark orchestrator, the report writer + reverse parser, the
-recommendations generator, and the analysis layer.
+80 passing, 5 skipped (`test_db.py` opt-in via `TEST_DATABASE_URL`; one path-traversal test made obsolete by opaque DB-generated report ids). The skipped DB tests are exercised end-to-end on Heroku via `migrate()` running on dyno startup.
 
 ## Security & privacy
 
-- `.env.local` is gitignored. **Never commit your real `SF_CLIENT_ID` /
+- `.env.local` still works for local dev only. **Never commit your real `SF_CLIENT_ID` /
   `SF_CLIENT_SECRET`.**
-- `.cache/sf-token.json` (the OAuth access token cache) is gitignored
-  and stored with mode `0o600`.
-- `reports/*.md`, `reports/*.json`, and `reports/commands.log` are
-  all gitignored — they contain prompts, token counts, raw `claude -p`
-  output, and possibly customer data from your org.
+- SF tokens now live in the Heroku Postgres `sessions` table, keyed by an HTTP-only signed cookie (no more `.cache/sf-token.json`).
+- The SESSION_SECRET signs the cookie HMAC; rotate it via `heroku config:set SESSION_SECRET=...` if compromised (which logs everyone out).
+- Reports rows in the `reports` table contain prompts, token counts, and possibly customer data from your org — same gitignore-on-the-old-disk concern, now a "treat your Heroku Postgres as production data" concern.
 - The frontend never uses `innerHTML` with interpolated data. All DOM
   construction goes through `document.createElement` + `textContent` /
   attribute setters to avoid XSS even in trace output.
 
 ## Design spec
 
-See [`docs/superpowers/specs/2026-05-04-token-comparison-tool-design.md`](docs/superpowers/specs/2026-05-04-token-comparison-tool-design.md)
-for the original RFC. Implementation plan in
-[`docs/superpowers/plans/2026-05-04-token-comparison-tool.md`](docs/superpowers/plans/2026-05-04-token-comparison-tool.md).
+- Original local-tool RFC: [`docs/superpowers/specs/2026-05-04-token-comparison-tool-design.md`](docs/superpowers/specs/2026-05-04-token-comparison-tool-design.md) (historical)
+- Original local-tool implementation plan: [`docs/superpowers/plans/2026-05-04-token-comparison-tool.md`](docs/superpowers/plans/2026-05-04-token-comparison-tool.md) (historical)
+- Heroku port design: [`docs/superpowers/specs/2026-05-07-heroku-port-design.md`](docs/superpowers/specs/2026-05-07-heroku-port-design.md)
+- Heroku port implementation plan: [`docs/superpowers/plans/2026-05-07-heroku-port.md`](docs/superpowers/plans/2026-05-07-heroku-port.md)
 
 ## License
 
