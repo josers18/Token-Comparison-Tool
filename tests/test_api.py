@@ -422,6 +422,11 @@ def test_list_and_load_report(client, tmp_path, monkeypatch):
     body = r.json()
     assert len(body["reports"]) == 1
     assert body["reports"][0]["name"] == "rpt_test123"
+    # The list response includes a models[] field for the analytics table
+    # so the SPA can render multi-model sweeps and filter "report contains
+    # this model" instead of "report.model == this model".
+    assert "models" in body["reports"][0]
+    assert isinstance(body["reports"][0]["models"], list)
 
     # Load by id
     r = client.get("/api/reports/rpt_test123/data")

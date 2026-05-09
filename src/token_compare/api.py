@@ -896,6 +896,7 @@ def create_app(config: AppConfig) -> FastAPI:
                 "finished_at": finished_at,
                 "finalized": bool(payload),
                 "model": r.get("model"),
+                "models": (payload or {}).get("models") or ([r.get("model")] if r.get("model") else []),
                 "operator": r.get("operator"),
                 "org_name": r.get("org_name"),
                 **stats,

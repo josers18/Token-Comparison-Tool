@@ -625,7 +625,9 @@ async function loadReports() {
     state.reportsSortDir = state.reportsSortDir || "desc";
     // Populate the model filter from the actual report set.
     const sel = $("reports-filter-model");
-    const models = Array.from(new Set(state.reports.map((r) => r.model).filter(Boolean))).sort();
+    const models = Array.from(new Set(
+      state.reports.flatMap((r) => r.models || (r.model ? [r.model] : []))
+    )).sort();
     sel.replaceChildren(el("option", { attrs: { value: "" }, text: "All" }));
     for (const m of models) {
       sel.appendChild(el("option", { attrs: { value: m }, text: m }));
@@ -659,9 +661,13 @@ function renderReportsTable() {
 
   let rows = (state.reports || []).filter((r) => {
     if (kindFilter && r.kind !== kindFilter) return false;
-    if (modelFilter && r.model !== modelFilter) return false;
+    if (modelFilter) {
+      const ms = r.models || (r.model ? [r.model] : []);
+      if (!ms.includes(modelFilter)) return false;
+    }
     if (search) {
-      const hay = [r.name, r.model, r.operator, r.org_name].filter(Boolean).join(" ").toLowerCase();
+      const hay = [r.name, r.model, ...(r.models || []), r.operator, r.org_name]
+        .filter(Boolean).join(" ").toLowerCase();
       if (!hay.includes(search)) return false;
     }
     return true;
@@ -691,7 +697,10 @@ function renderReportsTable() {
     const tr = document.createElement("tr");
     tr.appendChild(td(formatReportTime(r.started_at)));
     tr.appendChild(td(r.kind ? kindPill(r.kind) : "—"));
-    tr.appendChild(td(r.model || "—"));
+    const ms = r.models || (r.model ? [r.model] : []);
+    const modelsText = ms.slice(0, 2).join(", ") +
+      (ms.length > 2 ? `, +${ms.length - 2}` : "");
+    tr.appendChild(td(modelsText || "—", "col-models"));
     tr.appendChild(td(String(r.scenario_count || 0), "col-num"));
     tr.appendChild(td(String(r.runs_per_path || 0), "col-num"));
     tr.appendChild(td("$" + (r.native_cost || 0).toFixed(3), "col-num"));
