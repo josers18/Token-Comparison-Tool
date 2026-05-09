@@ -28,6 +28,26 @@ class Scenario(BaseModel):
     notes: str = ""
 
 
+class ErrorResponse(BaseModel):
+    status_code: int
+    body_excerpt: str
+    headers: dict[str, str] = Field(default_factory=dict)
+
+
+class InferenceError(BaseModel):
+    type: str
+    message: str
+    body_excerpt: str = ""
+
+
+class ToolCallDetail(BaseModel):
+    name: str
+    input_excerpt: str
+    output_excerpt: str
+    truncated: bool = False
+    error: Optional[str] = None
+
+
 class RunResult(BaseModel):
     path: PathName
     input_tokens: int
@@ -41,6 +61,10 @@ class RunResult(BaseModel):
     succeeded: bool
     error: Optional[str] = None
     raw_json: Optional[dict | list] = None
+    error_response: Optional[ErrorResponse] = None
+    inference_error: Optional[InferenceError] = None
+    runner_traceback: Optional[str] = None
+    tool_call_details: list[ToolCallDetail] = Field(default_factory=list)
 
 
 def _median_int(values: list[int]) -> int:

@@ -264,3 +264,46 @@ def test_default_model_picks_sonnet():
     assert _default_model(["claude-3-opus", "claude-3-haiku"]) == "claude-3-opus"
     assert _default_model(["CLAUDE-5-SONNET"]) == "CLAUDE-5-SONNET"  # case-insensitive
     assert _default_model([]) == ""  # degenerate input → empty string, no exception
+
+
+def test_run_result_enrichment_fields_round_trip():
+    from token_compare.models import (
+        RunResult, PathName, ErrorResponse, InferenceError, ToolCallDetail,
+    )
+    r = RunResult(
+        path=PathName.NATIVE,
+        input_tokens=10, output_tokens=5, cache_read_input_tokens=0,
+        total_cost_usd=0.01, num_turns=1, duration_ms=100,
+        tool_calls=["Bash"], succeeded=False, raw_json={},
+        error_response=ErrorResponse(
+            status_code=401,
+            body_excerpt='{"error":"Invalid token"}',
+            headers={"mcp-session-id": "abc123"},
+        ),
+        tool_call_details=[ToolCallDetail(
+            name="Bash", input_excerpt="sf data query 'SELECT ...'",
+            output_excerpt="5 rows", truncated=False,
+        )],
+    )
+    dumped = r.model_dump()
+    assert dumped["error_response"]["status_code"] == 401
+    assert dumped["tool_call_details"][0]["name"] == "Bash"
+    rebuilt = RunResult.model_validate(dumped)
+    assert rebuilt.error_response.status_code == 401
+    assert rebuilt.tool_call_details[0].input_excerpt.startswith("sf data")
+
+
+def test_run_result_legacy_payload_no_enrichment_fields():
+    """Legacy payloads without enrichment fields validate cleanly."""
+    from token_compare.models import RunResult, PathName
+    legacy = {
+        "path": "native", "input_tokens": 10, "output_tokens": 5,
+        "cache_read_input_tokens": 0, "total_cost_usd": 0.01,
+        "num_turns": 1, "duration_ms": 100, "tool_calls": [],
+        "succeeded": True, "raw_json": {},
+    }
+    r = RunResult.model_validate(legacy)
+    assert r.error_response is None
+    assert r.inference_error is None
+    assert r.runner_traceback is None
+    assert r.tool_call_details == []
