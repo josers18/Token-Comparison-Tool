@@ -62,3 +62,50 @@ def test_mcp_proxy_aggregates_last_error_response():
     cap = proxy.last_error_response
     assert cap is not None
     assert cap["status_code"] == 401
+
+
+def test_runner_captures_inference_error(monkeypatch, tmp_path):
+    """When the Anthropic SDK raises APIError, RunResult.inference_error is populated."""
+    from token_compare.messages_runner import run_once
+    from token_compare.models import Scenario, SuccessCriteria, PathName
+    from unittest.mock import MagicMock
+    import anthropic
+
+    # Build an APIError-like exception via the SDK's actual class. The
+    # SDK constructor wants (message, request, *, body) — we bypass with
+    # a subclass so the test stays insulated from constructor changes.
+    class FakeAPIError(anthropic.APIError):
+        def __init__(self):
+            self.message = "rate limit hit"
+            self.body = {"type": "error",
+                          "error": {"type": "rate_limit_error",
+                                    "message": "Number of request tokens exceeded"}}
+            self.status_code = 429
+            self.request = None
+
+    def fake_create(**kwargs):
+        raise FakeAPIError()
+
+    fake_messages = MagicMock()
+    fake_messages.create = fake_create
+    fake_client = MagicMock()
+    fake_client.messages = fake_messages
+    monkeypatch.setattr(
+        "token_compare.messages_runner.get_client_for_model",
+        lambda model: fake_client,
+    )
+
+    s = Scenario(id="sA", title="A", category="c", difficulty="simple",
+                 prompt="x", success_criteria=SuccessCriteria())
+    r = run_once(
+        s, PathName.NATIVE, model="claude-4-5-sonnet",
+        max_turns=5, timeout_s=30, mcp_template_path=tmp_path / "x.json",
+        sf_token={"access_token": "t", "instance_url": "https://x"},
+    )
+    assert r.succeeded is False
+    assert r.inference_error is not None
+    assert r.inference_error.type == "rate_limit_error"
+    assert "exceeded" in r.inference_error.message.lower() or \
+           "rate limit" in r.inference_error.message.lower()
+    # Body excerpt should contain JSON of the error.
+    assert "rate_limit_error" in r.inference_error.body_excerpt

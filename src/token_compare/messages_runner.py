@@ -9,7 +9,7 @@ import anthropic
 
 from token_compare.inference_client import get_client_for_model
 from token_compare.mcp_proxy import McpProxy, load_specs_from_template
-from token_compare.models import ErrorResponse, PathName, RunResult, Scenario, SuccessCriteria
+from token_compare.models import ErrorResponse, InferenceError, PathName, RunResult, Scenario, SuccessCriteria
 from token_compare.native_tools import NATIVE_TOOL_DEFS, dispatch_native_tool
 from token_compare.pricing import compute_cost_usd
 
@@ -163,6 +163,7 @@ def run_once(
     # capture today, but reading it eagerly keeps us robust to that
     # changing).
     error_response: Optional[ErrorResponse] = None
+    inference_error: Optional[InferenceError] = None
     if path == PathName.NATIVE:
         base_kwargs["tools"] = NATIVE_TOOL_DEFS
     else:
@@ -233,6 +234,24 @@ def run_once(
                     resp = _create_with_retry(messages_create, kwargs)
                 except anthropic.APIError as e:
                     error = f"inference error: {e}"
+                    # Capture structured pieces for the SPA's failed-run replay panel.
+                    err_type = "unknown"
+                    err_message = str(e)
+                    body_str = ""
+                    body = getattr(e, "body", None)
+                    if isinstance(body, dict):
+                        sub = body.get("error") or {}
+                        if isinstance(sub, dict):
+                            err_type = sub.get("type", err_type)
+                            err_message = sub.get("message", err_message)
+                        try:
+                            import json as _json
+                            body_str = _json.dumps(body)[:500]
+                        except (TypeError, ValueError):
+                            body_str = str(body)[:500]
+                    inference_error = InferenceError(
+                        type=err_type, message=err_message, body_excerpt=body_str,
+                    )
                     break
                 except Exception as e:
                     # Catch-all so structural bugs (TypeError on bad kwargs,
@@ -324,4 +343,5 @@ def run_once(
         # UI show the gateway status, body, and safe headers without
         # storing secrets.
         error_response=error_response if error is not None else None,
+        inference_error=inference_error if error is not None else None,
     )
