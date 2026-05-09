@@ -1287,6 +1287,9 @@ function outcomeLabel(kind) {
 function fillPerRunBreakdown(bucket) {
   // bucket = { native: RunResult[], mcp: RunResult[] }. Render every
   // run from both paths, native first then MCP, in arrival order.
+  // Each run produces TWO rows: a summary row with a chevron toggle, and
+  // an expansion row with replay context (tool I/O, error response, etc.).
+  // Failed runs start expanded; successful runs start collapsed.
   const tbody = $("per-run-tbody");
   const card = $("per-run-card");
   if (!tbody || !card) return;
@@ -1302,9 +1305,21 @@ function fillPerRunBreakdown(bucket) {
   tbody.replaceChildren();
   for (const { r, idx, label } of allRows) {
     const tr = document.createElement("tr");
+    tr.className = "per-run-row";
+    const kind = classifyOutcome(r);
+
+    // Chevron column — click toggles the expansion row below.
+    const chevTd = document.createElement("td");
+    chevTd.className = "col-chev";
+    const chev = document.createElement("button");
+    chev.type = "button";
+    chev.className = "chev-toggle";
+    chev.setAttribute("aria-label", "Show details");
+    tr.appendChild(chevTd);
+    chevTd.appendChild(chev);
+
     tr.appendChild(elTd(`${idx}`, "col-num"));
     tr.appendChild(elTd(label, "col-path-" + label.toLowerCase()));
-    const kind = classifyOutcome(r);
     const pill = el("span", { className: "outcome-pill outcome-" + kind, text: outcomeLabel(kind) });
     const tdOutcome = document.createElement("td");
     tdOutcome.appendChild(pill);
@@ -1321,7 +1336,115 @@ function fillPerRunBreakdown(bucket) {
     tr.appendChild(elTd(formatDuration(r.duration_ms), "col-num"));
     tr.appendChild(elTd("$" + (r.total_cost_usd || 0).toFixed(4), "col-num"));
     tbody.appendChild(tr);
+
+    // Expansion row.
+    const detailTr = document.createElement("tr");
+    detailTr.className = "per-run-detail";
+    const detailTd = document.createElement("td");
+    detailTd.colSpan = 10;  // chev + 9 data columns
+    renderRunReplay(detailTd, r);
+    detailTr.appendChild(detailTd);
+    detailTr.hidden = (kind === "succeeded");  // failed: open by default
+    chev.textContent = detailTr.hidden ? "▸" : "▾";
+    tbody.appendChild(detailTr);
+
+    chev.addEventListener("click", () => {
+      detailTr.hidden = !detailTr.hidden;
+      chev.textContent = detailTr.hidden ? "▸" : "▾";
+    });
   }
+}
+
+function renderRunReplay(container, r) {
+  // Render the per-run replay block: error_response (MCP HTTP errors),
+  // inference_error (Anthropic API errors), runner_traceback (last-resort),
+  // and tool_call_details (every tool call's input/output, for any run).
+  container.replaceChildren();
+  let any = false;
+  if (r.error_response) {
+    any = true;
+    const lines = [
+      `HTTP ${r.error_response.status_code}`,
+      `Body: ${r.error_response.body_excerpt || "(empty)"}`,
+    ];
+    const headerEntries = Object.entries(r.error_response.headers || {});
+    if (headerEntries.length) {
+      lines.push("Headers: " + headerEntries
+        .map(([k, v]) => `${k}=${v}`).join(", "));
+    }
+    container.appendChild(buildReplayBlock("MCP gateway error", lines));
+  }
+  if (r.inference_error) {
+    any = true;
+    const lines = [`${r.inference_error.type}: ${r.inference_error.message}`];
+    if (r.inference_error.body_excerpt) {
+      lines.push(`Body: ${r.inference_error.body_excerpt}`);
+    }
+    container.appendChild(buildReplayBlock("Inference error", lines));
+  }
+  if (r.runner_traceback) {
+    any = true;
+    container.appendChild(buildReplayBlock("Runner traceback",
+      [r.runner_traceback], { mono: true }));
+  }
+  const tcd = r.tool_call_details || [];
+  if (tcd.length > 0) {
+    any = true;
+    const block = document.createElement("div");
+    block.className = "replay-block";
+    const h = document.createElement("h4");
+    h.textContent = `Tool calls (${tcd.length})`;
+    block.appendChild(h);
+    for (let i = 0; i < tcd.length; i++) {
+      const d = tcd[i];
+      const item = document.createElement("div");
+      item.className = "tool-call-item";
+      const head = document.createElement("div");
+      head.className = "tool-call-head";
+      head.textContent = `${i + 1}. ${d.name}`;
+      item.appendChild(head);
+      const inputPre = document.createElement("pre");
+      inputPre.className = "tool-io";
+      inputPre.textContent = d.input_excerpt;
+      item.appendChild(inputPre);
+      const arrow = document.createElement("div");
+      arrow.className = "tool-arrow"; arrow.textContent = "→";
+      item.appendChild(arrow);
+      const outputPre = document.createElement("pre");
+      outputPre.className = "tool-io";
+      outputPre.textContent = d.output_excerpt;
+      item.appendChild(outputPre);
+      if (d.error) {
+        const err = document.createElement("div");
+        err.className = "tool-call-error";
+        err.textContent = "Tool error: " + d.error;
+        item.appendChild(err);
+      }
+      block.appendChild(item);
+    }
+    container.appendChild(block);
+  }
+  if (!any) {
+    const empty = document.createElement("div");
+    empty.className = "muted";
+    empty.textContent = "(no detail captured for this run)";
+    container.appendChild(empty);
+  }
+}
+
+function buildReplayBlock(title, lines, opts = {}) {
+  const block = document.createElement("div");
+  block.className = "replay-block";
+  const h = document.createElement("h4");
+  h.textContent = title;
+  block.appendChild(h);
+  for (const line of lines) {
+    const p = document.createElement(opts.mono ? "pre" : "div");
+    p.className = opts.mono ? "tool-io" : "replay-line";
+    p.textContent = line;
+    block.appendChild(p);
+  }
+  return block;
 }
 
 function elTd(text, cls) {
