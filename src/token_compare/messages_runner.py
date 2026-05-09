@@ -9,7 +9,7 @@ import anthropic
 
 from token_compare.inference_client import get_client_for_model
 from token_compare.mcp_proxy import McpProxy, load_specs_from_template
-from token_compare.models import PathName, RunResult, Scenario, SuccessCriteria
+from token_compare.models import ErrorResponse, PathName, RunResult, Scenario, SuccessCriteria
 from token_compare.native_tools import NATIVE_TOOL_DEFS, dispatch_native_tool
 from token_compare.pricing import compute_cost_usd
 
@@ -101,6 +101,30 @@ def _tool_blocks_to_results(
     return out
 
 
+def _capture_mcp_error(mcp_proxy: Optional[McpProxy]) -> Optional[ErrorResponse]:
+    """Lift the proxy's most recent HTTP error capture (if any) onto the
+    typed `ErrorResponse` shape used by RunResult.error_response. Returns
+    None when the proxy is missing or never saw a non-2xx response — the
+    RunResult field stays None for clean (or non-MCP-related) failures.
+
+    Defensive on shape: tests stub the proxy with a MagicMock whose
+    attribute access auto-generates child mocks; treat anything that
+    isn't a real dict (or that fails to validate) as "no capture".
+    """
+    if mcp_proxy is None:
+        return None
+    try:
+        cap = mcp_proxy.last_error_response
+    except Exception:
+        return None
+    if not isinstance(cap, dict) or not cap:
+        return None
+    try:
+        return ErrorResponse(**cap)
+    except Exception:
+        return None
+
+
 def run_once(
     scenario: Scenario,
     path: PathName,
@@ -134,6 +158,11 @@ def run_once(
     # connector loop ourselves instead.
     mcp_proxy: Optional[McpProxy] = None
     mcp_init_error: Optional[str] = None
+    # Captured below as soon as the MCP gateway returns a non-2xx, before
+    # the proxy is closed in the finally block (close() doesn't drop the
+    # capture today, but reading it eagerly keeps us robust to that
+    # changing).
+    error_response: Optional[ErrorResponse] = None
     if path == PathName.NATIVE:
         base_kwargs["tools"] = NATIVE_TOOL_DEFS
     else:
@@ -145,6 +174,7 @@ def run_once(
             # Couldn't even reach the MCP gateway — record this as the
             # run's error and skip the model call entirely.
             mcp_init_error = f"mcp_init_failed ({type(e).__name__}): {e}"
+            error_response = _capture_mcp_error(mcp_proxy)
             if mcp_proxy is not None:
                 mcp_proxy.close()
                 mcp_proxy = None
@@ -258,6 +288,11 @@ def run_once(
                 error = "terminal_reason=max_turns: tool-use loop did not terminate"
     finally:
         if mcp_proxy is not None:
+            # Pick up any HTTP error captured during the message loop
+            # (initialize-time failures were already grabbed above) before
+            # tearing the sessions down.
+            if error_response is None:
+                error_response = _capture_mcp_error(mcp_proxy)
             mcp_proxy.close()
         duration_ms = int((time.time() - started) * 1000)
 
@@ -284,4 +319,9 @@ def run_once(
         succeeded=(error is None),
         error=error,
         raw_json=raw_events,
+        # Only attached on failures — `error_response` stays None on a
+        # clean run. Surfacing it on RunResult lets the failed-run replay
+        # UI show the gateway status, body, and safe headers without
+        # storing secrets.
+        error_response=error_response if error is not None else None,
     )

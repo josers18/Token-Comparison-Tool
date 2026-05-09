@@ -40,6 +40,10 @@ class McpServerSpec:
     config/sf-mcp.json under `mcpServers`."""
     name: str
     url: str
+    # Currently only "http" is wired up (Streamable HTTP). Field exists so
+    # callers/tests can be explicit and future transports (e.g. stdio) can
+    # land without an API break.
+    transport: str = "http"
 
 
 @dataclass
@@ -49,6 +53,10 @@ class McpServerSession:
     spec: McpServerSpec
     sf_access_token: str
     session_id: Optional[str] = None
+    # Most recent non-2xx response captured by `_rpc`. Used by the runner
+    # to lift onto RunResult.error_response so failed runs can be replayed.
+    # Each new failure overwrites the previous one (last-error-wins).
+    last_error_response: Optional[dict[str, Any]] = None
     _next_id: int = 1
     _client: httpx.Client = field(default_factory=lambda: httpx.Client(timeout=_MCP_TIMEOUT_S))
 
@@ -100,6 +108,23 @@ class McpServerSession:
             self.session_id = sid
 
         if resp.status_code >= 400:
+            # Capture the structured pieces of the failure (status, body
+            # excerpt, and a small allowlist of headers) so the runner can
+            # surface them on RunResult.error_response for the failed-run
+            # replay UI. Authorization-style headers are intentionally
+            # excluded — we never want to persist secrets in a benchmark
+            # report.
+            self.last_error_response = {
+                "status_code": resp.status_code,
+                "body_excerpt": (resp.text or "")[:500],
+                "headers": {
+                    k: v for k, v in resp.headers.items()
+                    if k.lower() in {
+                        "mcp-session-id", "retry-after",
+                        "x-request-id", "content-type",
+                    }
+                },
+            }
             raise McpError(
                 f"MCP {method} → HTTP {resp.status_code}: {resp.text[:300]}"
             )
@@ -244,6 +269,20 @@ class McpProxy:
     def close(self) -> None:
         for s in self.sessions:
             s.close()
+
+    @property
+    def last_error_response(self) -> Optional[dict[str, Any]]:
+        """Return the most recent error response captured by any session.
+        Sessions overwrite their own capture on each new failure, so the
+        first non-None we find is "the latest failure on that session"; if
+        multiple sessions failed, the iteration order is the spec order
+        (first-seen wins) — fine for our use, where the runner usually
+        bails on the first MCP failure during open()."""
+        for sess in self.sessions:
+            cap = getattr(sess, "last_error_response", None)
+            if cap is not None:
+                return cap
+        return None
 
     def __enter__(self) -> "McpProxy":
         return self
