@@ -24,6 +24,9 @@ const state = {
   // table; controls the "← Back to reports" link in scenario/summary
   // views. Reset on a fresh benchmark or when navigating home.
   cameFromReports: false,
+  // Tier D compare flow: when set, the user has clicked "Compare" on a
+  // report; the next "vs A" click navigates to /compare?a=…&b=….
+  compareSelected: null,
 };
 
 // Guest mode for read-only share links. Set by share.html before app.js loads.
@@ -670,7 +673,7 @@ async function loadReports() {
   if (!tbody) return;
   tbody.replaceChildren();
   tbody.appendChild(
-    el("tr", {}, el("td", { attrs: { colspan: "11" }, className: "muted reports-empty", text: "Loading…" })),
+    el("tr", {}, el("td", { attrs: { colspan: "12" }, className: "muted reports-empty", text: "Loading…" })),
   );
   try {
     const res = await fetch("/api/reports?limit=100", { cache: "no-store" });
@@ -693,7 +696,7 @@ async function loadReports() {
     renderReportsTable();
   } catch (e) {
     tbody.replaceChildren(
-      el("tr", {}, el("td", { attrs: { colspan: "11" }, className: "muted reports-empty",
+      el("tr", {}, el("td", { attrs: { colspan: "12" }, className: "muted reports-empty",
         text: "Failed to load reports: " + e.message })),
     );
   }
@@ -746,7 +749,7 @@ function renderReportsTable() {
   tbody.replaceChildren();
   if (rows.length === 0) {
     tbody.appendChild(el("tr", {},
-      el("td", { attrs: { colspan: "11" }, className: "muted reports-empty",
+      el("td", { attrs: { colspan: "12" }, className: "muted reports-empty",
         text: "No reports match these filters." })));
     return;
   }
@@ -785,9 +788,38 @@ function renderReportsTable() {
     tr.appendChild(td(cachePct, "col-num"));
     tr.appendChild(reportActionsCell(r));
 
+    // Tier D: per-row Compare button. The state machine has three modes:
+    //   1. compareSelected null     → buttons read "Compare". Clicking sets A.
+    //   2. compareSelected.a_id = X → row X reads "✓ Cancel"; all others read "vs A".
+    //                                  Clicking "vs A" navigates to /compare?a=X&b=current.
+    //                                  Clicking "✓ Cancel" clears the selection.
+    const cmpTd = document.createElement("td");
+    cmpTd.className = "col-cmp";
+    const cmpBtn = document.createElement("button");
+    cmpBtn.type = "button";
+    cmpBtn.className = "secondary cmp-btn";
+    const isA = state.compareSelected?.a_id === r.name;
+    const hasA = !!state.compareSelected?.a_id;
+    cmpBtn.textContent = isA ? "✓ Cancel" : (hasA ? "vs A" : "Compare");
+    cmpBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (isA) {
+        state.compareSelected = null;
+        renderReportsTable();
+      } else if (hasA) {
+        window.location.href = `/compare?a=${encodeURIComponent(state.compareSelected.a_id)}&b=${encodeURIComponent(r.name)}`;
+      } else {
+        state.compareSelected = { a_id: r.name };
+        renderReportsTable();
+      }
+    });
+    cmpTd.appendChild(cmpBtn);
+    tr.appendChild(cmpTd);
+
     // Click anywhere in the row except the actions cell → load the report.
     tr.addEventListener("click", (e) => {
       if (e.target.closest(".reports-actions-cell")) return;
+      if (e.target.closest(".col-cmp")) return;
       loadReportById(r.name);
     });
     tbody.appendChild(tr);

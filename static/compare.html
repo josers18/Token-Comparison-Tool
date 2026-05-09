@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Compare reports — Token Comparison Tool</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=Geist:wght@300..600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <a class="brand" href="/" aria-label="Back to home">
+      <span class="dot"></span>
+      <span class="wordmark">Token Comparison Tool</span>
+      <span class="sub">Compare reports</span>
+    </a>
+    <nav class="header-nav" aria-label="Main">
+      <a class="header-link" href="/history">History</a>
+      <a class="header-link active" href="/compare">Compare</a>
+      <a class="header-link" href="/admin">Admin</a>
+    </nav>
+  </header>
+  <main class="container">
+    <section class="card">
+      <h1 class="catalog-title">Compare two reports</h1>
+      <p class="muted">Pick any two finalized reports to see what changed between them — cost deltas, success-rate drift, p95 latency, MCP/Native ratio. Regressions surface first.</p>
+
+      <div class="compare-pickers">
+        <label>Report A
+          <select id="cmp-a"></select>
+        </label>
+        <label>Report B
+          <select id="cmp-b"></select>
+        </label>
+        <label>Model
+          <select id="cmp-model"></select>
+        </label>
+        <button class="primary" id="cmp-run">Run comparison →</button>
+      </div>
+
+      <div id="cmp-meta" class="compare-meta" hidden></div>
+      <div id="cmp-regressions" class="compare-section"></div>
+      <div id="cmp-others" class="compare-section"></div>
+      <div id="cmp-scope" class="compare-section"></div>
+    </section>
+  </main>
+  <script src="compare.js?v=1"></script>
+</body>
+</html>

@@ -1426,6 +1426,12 @@ h1{{font-size:24px}}p{{color:#747474}}</style></head><body>
         from fastapi.responses import RedirectResponse
         return RedirectResponse(url="/history.html", status_code=307)
 
+    @app.get("/compare")
+    async def compare_redirect():
+        """Pretty URL for the compare page."""
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url="/compare.html", status_code=307)
+
     if config.static_dir and config.static_dir.is_dir():
         app.mount("/", StaticFiles(directory=str(config.static_dir), html=True), name="static")
 
