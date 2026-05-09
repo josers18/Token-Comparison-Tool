@@ -53,17 +53,15 @@ def _make_tool_call_detail(
 
     out_str = output_str if isinstance(output_str, str) else str(output_str)
     raw_len = len(out_str)
-    # Binary-content guard: replace if mostly non-printable (excluding
-    # common whitespace). Runs before truncation so a 5KB binary blob
-    # becomes a short marker instead of 2KB of garbage. We treat any
-    # character outside the printable-ASCII range (`!`–`~`, plus
-    # space/tab/newline) as suspicious — Python's `str.isprintable()`
-    # alone considers most latin-1 bytes (>=0x80) printable, which would
-    # let a raw byte dump slip through unflagged.
+    # Binary-content guard: replace if mostly C0/C1 control bytes
+    # (excluding tab/newline/CR). Real binary payloads (PNG/PDF/zip,
+    # latin-1-decoded bytes) carry a high density of NULs and other
+    # control chars; valid Unicode prose (CJK, Arabic, accented Latin)
+    # stays in the printable Unicode range and isn't misclassified.
     if raw_len > 0:
         nonprint = sum(
             1 for c in out_str
-            if (not c.isprintable() and c not in "\n\t ") or ord(c) > 126
+            if ord(c) < 0x20 and c not in "\n\t\r"
         )
         if nonprint / raw_len > 0.5:
             out_str = f"[binary content, {raw_len} bytes]"

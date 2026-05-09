@@ -198,12 +198,32 @@ def test_make_tool_call_detail_under_cap_not_truncated():
 
 
 def test_make_tool_call_detail_binary_content_guard():
-    """Mostly non-printable output is replaced with a binary-content marker."""
+    """Mostly control-byte output is replaced with a binary-content marker."""
     from token_compare.messages_runner import _make_tool_call_detail
-    binary = bytes(range(256)).decode("latin-1")  # mostly non-printable
+    # Realistic binary shape: lots of NUL/control bytes (matches PDF/PNG/zip
+    # headers). bytes(range(32)) gives 32 control chars; we repeat to push
+    # the ratio decisively over 0.5.
+    binary = (b"\x00" * 50 + b"\x89PNG\r\n\x1a\n" + bytes(range(32)) * 5).decode("latin-1")
     d = _make_tool_call_detail(name="Bash", input_obj={}, output_str=binary)
     assert d.output_excerpt.startswith("[binary content")
     assert "bytes" in d.output_excerpt
+
+
+def test_make_tool_call_detail_unicode_text_not_flagged():
+    """CJK / Arabic / accented Latin text passes through as-is — they are
+    NOT binary, even though many chars have ord > 126."""
+    from token_compare.messages_runner import _make_tool_call_detail
+    samples = [
+        "résumé café",                              # Latin-1 supplement
+        "こんにちは、世界。これは日本語のテストです。",   # Japanese
+        "你好世界，这是一个中文测试。",                # Chinese
+        "مرحبا بالعالم، هذا اختبار باللغة العربية.",  # Arabic
+    ]
+    for s in samples:
+        d = _make_tool_call_detail(name="Bash", input_obj={}, output_str=s)
+        assert not d.output_excerpt.startswith("[binary content"), \
+            f"Unicode text misclassified as binary: {s!r}"
+        assert s in d.output_excerpt
 
 
 def test_runner_captures_tool_call_details(monkeypatch, tmp_path):
