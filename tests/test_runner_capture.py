@@ -109,3 +109,63 @@ def test_runner_captures_inference_error(monkeypatch, tmp_path):
            "rate limit" in r.inference_error.message.lower()
     # Body excerpt should contain JSON of the error.
     assert "rate_limit_error" in r.inference_error.body_excerpt
+
+
+def test_runner_captures_traceback_on_unhandled(monkeypatch, tmp_path):
+    """An unhandled exception during run_once produces RunResult.runner_traceback."""
+    from token_compare.messages_runner import run_once
+    from token_compare.models import Scenario, SuccessCriteria, PathName
+
+    def boom(*a, **kw):
+        raise RuntimeError("simulated runner blowup")
+    monkeypatch.setattr(
+        "token_compare.messages_runner.get_client_for_model", boom)
+
+    s = Scenario(id="sA", title="A", category="c", difficulty="simple",
+                 prompt="x", success_criteria=SuccessCriteria())
+    r = run_once(
+        s, PathName.NATIVE, model="claude-4-5-sonnet",
+        max_turns=5, timeout_s=30, mcp_template_path=tmp_path / "x.json",
+        sf_token={"access_token": "t", "instance_url": "https://x"},
+    )
+    assert r.succeeded is False
+    assert r.runner_traceback is not None
+    assert "simulated runner blowup" in r.runner_traceback
+    assert "RuntimeError" in r.runner_traceback
+
+
+def test_runner_traceback_none_on_success(monkeypatch, tmp_path):
+    """Successful runs leave runner_traceback as None."""
+    from token_compare.messages_runner import run_once
+    from token_compare.models import Scenario, SuccessCriteria, PathName
+    from unittest.mock import MagicMock
+
+    text_block = MagicMock()
+    text_block.type = "text"
+    text_block.text = "done"
+
+    resp = MagicMock()
+    resp.stop_reason = "end_turn"
+    resp.content = [text_block]
+    resp.usage = MagicMock(input_tokens=10, output_tokens=5,
+                            cache_read_input_tokens=0,
+                            cache_creation_input_tokens=0)
+
+    fake_messages = MagicMock()
+    fake_messages.create = MagicMock(return_value=resp)
+    fake_client = MagicMock()
+    fake_client.messages = fake_messages
+
+    monkeypatch.setattr(
+        "token_compare.messages_runner.get_client_for_model",
+        lambda m: fake_client)
+
+    s = Scenario(id="sA", title="A", category="c", difficulty="simple",
+                 prompt="x", success_criteria=SuccessCriteria())
+    r = run_once(
+        s, PathName.NATIVE, model="claude-4-5-sonnet",
+        max_turns=5, timeout_s=30, mcp_template_path=tmp_path / "x.json",
+        sf_token={"access_token": "t", "instance_url": "https://x"},
+    )
+    assert r.succeeded is True
+    assert r.runner_traceback is None
