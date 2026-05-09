@@ -572,3 +572,133 @@ def test_load_legacy_report_normalizes_to_cube(client, monkeypatch):
     assert body["ok"] is True
     assert body["scenario_count"] == 1
     assert body["scenario_ids"] == ["sLegacy"]
+
+
+def test_projection_endpoint(client, monkeypatch):
+    from token_compare import db
+    payload = {
+        "started_at": "2026-04-01T00:00:00+00:00",
+        "finished_at": "2026-04-01T00:00:01+00:00",
+        "operator": "me", "org_name": "o", "tool_commit": "abc",
+        "model": "claude-4-5-sonnet",
+        "models": ["claude-4-5-sonnet"],
+        "runs_per_path": 1,
+        "scenarios": [{
+            "scenario_id": "s1",
+            "native_runs": [{"path": "native", "input_tokens": 10,
+                              "output_tokens": 5,
+                              "cache_read_input_tokens": 0,
+                              "total_cost_usd": 0.01, "num_turns": 1,
+                              "duration_ms": 100, "tool_calls": [],
+                              "succeeded": True, "raw_json": {}}],
+            "mcp_runs": [{"path": "mcp", "input_tokens": 10,
+                          "output_tokens": 5,
+                          "cache_read_input_tokens": 0,
+                          "total_cost_usd": 0.02, "num_turns": 1,
+                          "duration_ms": 100, "tool_calls": [],
+                          "succeeded": True, "raw_json": {}}],
+            "runs_by_model": {"claude-4-5-sonnet": {
+                "native_runs": [{"path": "native", "input_tokens": 10,
+                                  "output_tokens": 5,
+                                  "cache_read_input_tokens": 0,
+                                  "total_cost_usd": 0.01, "num_turns": 1,
+                                  "duration_ms": 100, "tool_calls": [],
+                                  "succeeded": True, "raw_json": {}}],
+                "mcp_runs": [{"path": "mcp", "input_tokens": 10,
+                              "output_tokens": 5,
+                              "cache_read_input_tokens": 0,
+                              "total_cost_usd": 0.02, "num_turns": 1,
+                              "duration_ms": 100, "tool_calls": [],
+                              "succeeded": True, "raw_json": {}}],
+            }},
+        }],
+    }
+    async def _mock_get_report(report_id):
+        if report_id == "rpt_proj":
+            return {"id": "rpt_proj", "payload_json": payload,
+                    "started_at": "2026-04-01T00:00:00+00:00"}
+        return None
+    monkeypatch.setattr(db, "get_report", _mock_get_report)
+
+    r = client.get("/api/reports/rpt_proj/projection?volume=10000&period=month")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["native_total"] == 100.0
+    assert body["mcp_total"] == 200.0
+    assert len(body["curve"]) == 12
+    assert body["model_used"] == "claude-4-5-sonnet"
+
+
+def test_projection_endpoint_with_thresholds(client, monkeypatch):
+    """Custom breakeven thresholds passed as comma-separated query."""
+    from token_compare import db
+    payload = {
+        "started_at": "2026-04-01T00:00:00+00:00",
+        "finished_at": "2026-04-01T00:00:01+00:00",
+        "operator": "me", "org_name": "o", "tool_commit": "abc",
+        "model": "claude-4-5-sonnet",
+        "models": ["claude-4-5-sonnet"],
+        "runs_per_path": 1,
+        "scenarios": [{
+            "scenario_id": "s1",
+            "native_runs": [{"path": "native", "input_tokens": 10,
+                              "output_tokens": 5,
+                              "cache_read_input_tokens": 0,
+                              "total_cost_usd": 0.01, "num_turns": 1,
+                              "duration_ms": 100, "tool_calls": [],
+                              "succeeded": True, "raw_json": {}}],
+            "mcp_runs": [{"path": "mcp", "input_tokens": 10,
+                          "output_tokens": 5,
+                          "cache_read_input_tokens": 0,
+                          "total_cost_usd": 0.02, "num_turns": 1,
+                          "duration_ms": 100, "tool_calls": [],
+                          "succeeded": True, "raw_json": {}}],
+            "runs_by_model": {"claude-4-5-sonnet": {
+                "native_runs": [{"path": "native", "input_tokens": 10,
+                                  "output_tokens": 5,
+                                  "cache_read_input_tokens": 0,
+                                  "total_cost_usd": 0.01, "num_turns": 1,
+                                  "duration_ms": 100, "tool_calls": [],
+                                  "succeeded": True, "raw_json": {}}],
+                "mcp_runs": [{"path": "mcp", "input_tokens": 10,
+                              "output_tokens": 5,
+                              "cache_read_input_tokens": 0,
+                              "total_cost_usd": 0.02, "num_turns": 1,
+                              "duration_ms": 100, "tool_calls": [],
+                              "succeeded": True, "raw_json": {}}],
+            }},
+        }],
+    }
+    async def _mock_get_report(report_id):
+        if report_id == "rpt_proj":
+            return {"id": "rpt_proj", "payload_json": payload,
+                    "started_at": "2026-04-01T00:00:00+00:00"}
+        return None
+    monkeypatch.setattr(db, "get_report", _mock_get_report)
+
+    r = client.get(
+        "/api/reports/rpt_proj/projection"
+        "?volume=10000&period=month&thresholds=500,5000,50000"
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    threshold_values = sorted({b["threshold_usd"] for b in body["breakevens"]})
+    assert threshold_values == [500.0, 5000.0, 50000.0]
+
+
+def test_projection_endpoint_404_on_unknown_report(client, monkeypatch):
+    from token_compare import db
+    async def _mock_get_report(report_id):
+        return None
+    monkeypatch.setattr(db, "get_report", _mock_get_report)
+    r = client.get("/api/reports/rpt_nonexistent/projection?volume=1000&period=month")
+    assert r.status_code == 404
+
+
+def test_projection_endpoint_invalid_thresholds(client, monkeypatch):
+    from token_compare import db
+    async def _mock_get_report(report_id):
+        return {"id": "rpt_x", "payload_json": {"models": ["sonnet"], "model": "sonnet", "scenarios": [], "runs_per_path": 1}, "started_at": "x"}
+    monkeypatch.setattr(db, "get_report", _mock_get_report)
+    r = client.get("/api/reports/rpt_x/projection?volume=1000&period=month&thresholds=abc,def")
+    assert r.status_code == 400

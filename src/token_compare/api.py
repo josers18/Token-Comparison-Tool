@@ -5,7 +5,7 @@ import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import Body, FastAPI, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
@@ -23,6 +23,7 @@ from token_compare.report_loader import (
     list_reports, load_json_report, load_markdown_report,
 )
 from token_compare.models import Scenario, SuccessCriteria, _normalize_to_cube
+from token_compare.projection import project_at_scale
 from token_compare.scenarios import load_all, load_all_from_db, seed_from_yaml_if_empty
 
 
@@ -971,6 +972,42 @@ def create_app(config: AppConfig) -> FastAPI:
                 **_NO_STORE,
             },
         )
+
+    @app.get("/api/reports/{report_id}/projection")
+    async def get_projection(
+        report_id: str,
+        volume: int = 10000,
+        period: Literal["day", "month", "year"] = "month",
+        growth_rate_pct: float = 0.0,
+        thresholds: Optional[str] = None,
+        model: Optional[str] = None,
+    ) -> Response:
+        from token_compare import db
+        rec = await db.get_report(report_id)
+        if not rec or not rec.get("payload_json"):
+            return JSONResponse({"error": "not found"}, status_code=404)
+
+        th_list: Optional[list[float]] = None
+        if thresholds:
+            try:
+                th_list = [float(x.strip()) for x in thresholds.split(",") if x.strip()]
+            except ValueError:
+                return JSONResponse(
+                    {"error": "invalid thresholds"}, status_code=400,
+                )
+
+        from token_compare.models import BenchmarkResult
+        payload = _normalize_to_cube(rec["payload_json"])
+        bench = BenchmarkResult.model_validate(payload)
+        proj = project_at_scale(
+            bench,
+            runs_per_scenario_per_period=volume,
+            period=period,
+            growth_rate_pct=growth_rate_pct,
+            breakeven_thresholds_usd=th_list,
+            model=model,
+        )
+        return JSONResponse(proj.model_dump(), headers=_NO_STORE)
 
     @app.post("/api/reports/load")
     async def upload_and_load_report(file: UploadFile = File(...)) -> dict:
