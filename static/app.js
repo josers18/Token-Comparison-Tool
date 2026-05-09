@@ -666,7 +666,8 @@ function renderReportsTable() {
       if (!ms.includes(modelFilter)) return false;
     }
     if (search) {
-      const hay = [r.name, r.model, ...(r.models || []), r.operator, r.org_name]
+      const ms = r.models?.length ? r.models : (r.model ? [r.model] : []);
+      const hay = [r.name, ...ms, r.operator, r.org_name]
         .filter(Boolean).join(" ").toLowerCase();
       if (!hay.includes(search)) return false;
     }
