@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>History — Token Comparison Tool</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=Geist:wght@300..600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <a class="brand" href="/" aria-label="Back to home">
+      <span class="dot"></span>
+      <span class="wordmark">Token Comparison Tool</span>
+      <span class="sub">Regression history</span>
+    </a>
+    <nav class="header-nav" aria-label="Main">
+      <a class="header-link" href="/admin">Admin</a>
+      <a class="header-link active" href="/history">History</a>
+    </nav>
+  </header>
+  <main class="container">
+    <section class="card">
+      <h1 class="catalog-title">Regression history</h1>
+      <p class="muted">Track median cost, cache hit ratio, success rate, and p95 wall-clock for any (scenario, model) pair across your finalized reports. Useful for catching MCP gateway regressions or cost drift after a prompt edit.</p>
+
+      <div class="history-filters">
+        <label>Scenario
+          <select id="hist-scenario"></select>
+        </label>
+        <label>Model
+          <select id="hist-model"></select>
+        </label>
+        <label>Range
+          <select id="hist-range">
+            <option value="7">7d</option>
+            <option value="30" selected>30d</option>
+            <option value="90">90d</option>
+            <option value="">All</option>
+          </select>
+        </label>
+        <label class="checkbox">
+          <input type="checkbox" id="hist-markers"> Show change markers
+        </label>
+      </div>
+
+      <div class="history-charts">
+        <div class="hist-chart-cell">
+          <h3>Median cost</h3>
+          <svg id="hist-chart-cost" viewBox="0 0 600 200" preserveAspectRatio="none"></svg>
+        </div>
+        <div class="hist-chart-cell">
+          <h3>Cache hit ratio</h3>
+          <svg id="hist-chart-cache" viewBox="0 0 600 200" preserveAspectRatio="none"></svg>
+        </div>
+        <div class="hist-chart-cell">
+          <h3>Success rate</h3>
+          <svg id="hist-chart-success" viewBox="0 0 600 200" preserveAspectRatio="none"></svg>
+        </div>
+        <div class="hist-chart-cell">
+          <h3>p95 wall-clock</h3>
+          <svg id="hist-chart-p95_duration" viewBox="0 0 600 200" preserveAspectRatio="none"></svg>
+        </div>
+      </div>
+
+      <h3>Underlying data</h3>
+      <table class="hist-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Report</th>
+            <th>Model</th>
+            <th>Native median</th>
+            <th>MCP median</th>
+            <th>Δ from prev</th>
+          </tr>
+        </thead>
+        <tbody id="hist-tbody"></tbody>
+      </table>
+    </section>
+  </main>
+  <script src="history.js?v=1"></script>
+</body>
+</html>
