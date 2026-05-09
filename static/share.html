@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Shared report — Token Comparison Tool</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=Geist:wght@300..600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="share-view">
+  <header class="app-header">
+    <span class="brand" aria-label="Shared report">
+      <span class="dot"></span>
+      <span class="wordmark">Token Comparison Tool</span>
+      <span class="sub">Shared report</span>
+    </span>
+    <nav class="header-nav" aria-label="Main">
+      <span class="muted" id="share-expires-pill">read-only</span>
+    </nav>
+  </header>
+
+  <main class="container">
+    <section id="scenario-view" class="card" hidden>
+      <a class="back-link" href="#" id="scenario-back-link" hidden>← Back to reports</a>
+      <div class="scenario-head">
+        <p class="muted" id="sv-meta"></p>
+        <h2 id="sv-title"></h2>
+        <blockquote id="sv-prompt"></blockquote>
+      </div>
+
+      <div class="verdict" id="sv-verdict" hidden>
+        <div class="verdict-icon" id="sv-verdict-icon">↓</div>
+        <div class="verdict-text" id="sv-verdict-text">—</div>
+        <div class="verdict-num" id="sv-verdict-num"></div>
+      </div>
+
+      <div class="model-pills" id="sv-model-pills" hidden></div>
+
+      <div class="sparkline-row" id="sv-sparklines" hidden>
+        <div class="sparkline-cell" data-metric="cost">
+          <div class="sparkline-label">Cost trend</div>
+          <svg class="sparkline" viewBox="0 0 80 30" preserveAspectRatio="none"></svg>
+          <div class="sparkline-value">—</div>
+        </div>
+        <div class="sparkline-cell" data-metric="cache">
+          <div class="sparkline-label">Cache hit</div>
+          <svg class="sparkline" viewBox="0 0 80 30" preserveAspectRatio="none"></svg>
+          <div class="sparkline-value">—</div>
+        </div>
+        <div class="sparkline-cell" data-metric="success">
+          <div class="sparkline-label">Success</div>
+          <svg class="sparkline" viewBox="0 0 80 30" preserveAspectRatio="none"></svg>
+          <div class="sparkline-value">—</div>
+        </div>
+        <div class="sparkline-cell" data-metric="p95_duration">
+          <div class="sparkline-label">p95 wall-clock</div>
+          <svg class="sparkline" viewBox="0 0 80 30" preserveAspectRatio="none"></svg>
+          <div class="sparkline-value">—</div>
+        </div>
+      </div>
+
+      <div class="dual">
+        <div class="panel native">
+          <h3>Native · path A</h3>
+          <div class="panel-status" id="sv-native-status">—</div>
+          <div class="hero" id="sv-native-input">—</div>
+          <div class="hero-label">input tokens</div>
+          <div class="panel-meta">
+            <div>Turns <span id="sv-native-turns">—</span></div>
+            <div>Cost / run <span id="sv-native-cost">—</span></div>
+          </div>
+          <div class="panel-meta panel-meta-secondary">
+            <div>Cache hit <span id="sv-native-cache">—</span></div>
+            <div>Wall-clock <span id="sv-native-duration">—</span></div>
+          </div>
+          <ul class="tools" id="sv-native-tools"></ul>
+        </div>
+        <div class="panel mcp">
+          <h3>MCP · path B</h3>
+          <div class="panel-status" id="sv-mcp-status">—</div>
+          <div class="hero" id="sv-mcp-input">—</div>
+          <div class="hero-label">input tokens</div>
+          <div class="panel-meta">
+            <div>Turns <span id="sv-mcp-turns">—</span></div>
+            <div>Cost / run <span id="sv-mcp-cost">—</span></div>
+          </div>
+          <div class="panel-meta panel-meta-secondary">
+            <div>Cache hit <span id="sv-mcp-cache">—</span></div>
+            <div>Wall-clock <span id="sv-mcp-duration">—</span></div>
+          </div>
+          <ul class="tools" id="sv-mcp-tools"></ul>
+        </div>
+      </div>
+
+      <div class="per-run-card" id="per-run-card" hidden>
+        <h3>Per-run breakdown</h3>
+        <p class="muted">Each run that contributed to the medians above. Cost spread reveals whether the comparison is reliable or noisy.</p>
+        <table class="per-run-table">
+          <thead>
+            <tr>
+              <th class="col-chev"></th>
+              <th>Run</th>
+              <th>Path</th>
+              <th>Outcome</th>
+              <th>Turns</th>
+              <th>In tokens</th>
+              <th>Out tokens</th>
+              <th>Cache hit</th>
+              <th>Wall-clock</th>
+              <th>Cost</th>
+            </tr>
+          </thead>
+          <tbody id="per-run-tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="results-card">
+        <div class="chart-head">
+          <div class="headline" id="sv-headline">—</div>
+          <div class="legend-inline">
+            <span><span class="sw native"></span>Native</span>
+            <span><span class="sw mcp"></span>MCP</span>
+          </div>
+        </div>
+        <div class="chart-rows" id="sv-chart-rows"></div>
+        <canvas id="sv-chart" hidden></canvas>
+      </div>
+
+      <div class="trace-card" id="trace-card" hidden>
+        <div class="editorial">
+          <div class="ed-label">
+            <span class="marker"></span>
+            Why these numbers differ
+          </div>
+          <div class="explanation" id="trace-explanation">—</div>
+        </div>
+
+        <h3>Turn-by-turn trace</h3>
+        <p class="muted">
+          First successful run of each path (or first run if both failed).
+          <code>in</code> = total prompt tokens this turn (new + replayed from cache + freshly cached).
+          <code>out</code> = tokens generated. The breakdown shows what was new vs. cached — the large
+          cache write on turn 1 is tool-definitions loading into context.
+        </p>
+        <table class="trace-table">
+          <thead>
+            <tr>
+              <th>Turn</th>
+              <th>Native · path A</th>
+              <th>MCP · path B</th>
+              <th class="trace-delta-col">Δ</th>
+            </tr>
+          </thead>
+          <tbody id="trace-tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="actions" id="scenario-actions">
+        <button id="scenario-export-pdf" class="secondary">⎙ Export PDF</button>
+      </div>
+    </section>
+
+    <section id="summary-view" class="card" hidden>
+      <a class="back-link" href="#" id="summary-back-link" hidden>← Back to reports</a>
+      <h2>Overall summary</h2>
+      <div class="model-pills" id="summary-model-pills" hidden></div>
+      <div class="hero-summary" id="summary-headline">—</div>
+      <p class="muted" id="summary-headline-caveat"></p>
+
+      <h3>Cost totals</h3>
+      <table class="summary-table">
+        <thead>
+          <tr><th></th><th>Native</th><th>MCP</th></tr>
+        </thead>
+        <tbody id="summary-tbody"></tbody>
+      </table>
+
+      <h3>Cost at scale</h3>
+      <p class="muted">Project token spend across volume + time. Native vs MCP totals, breakeven thresholds, and a 12-month cumulative curve.</p>
+      <div class="projection-panel" id="projection-panel">
+        <div class="projection-controls">
+          <label>Volume
+            <input type="number" id="projection-volume" value="10000" min="1" step="1000">
+          </label>
+          <label>Period
+            <div class="segmented" id="projection-period">
+              <button type="button" data-period="day">Daily</button>
+              <button type="button" data-period="month" class="active">Monthly</button>
+              <button type="button" data-period="year">Annual</button>
+            </div>
+          </label>
+          <label>Growth %/mo
+            <input type="number" id="projection-growth" value="0" min="0" step="1">
+          </label>
+          <label class="projection-model-label">Model
+            <select id="projection-model"></select>
+          </label>
+        </div>
+        <div class="projection-headline">
+          <div class="kpi"><div class="kpi-label">Native</div><div class="kpi-value" id="proj-native-total">—</div></div>
+          <div class="kpi"><div class="kpi-label">MCP</div><div class="kpi-value" id="proj-mcp-total">—</div></div>
+          <div class="kpi"><div class="kpi-label">Delta</div><div class="kpi-value" id="proj-delta">—</div></div>
+        </div>
+        <div class="projection-thresholds">
+          <label>Breakeven A <input type="number" id="proj-th-a" value="1000" min="0"></label>
+          <label>Breakeven B <input type="number" id="proj-th-b" value="10000" min="0"></label>
+          <label>Breakeven C <input type="number" id="proj-th-c" value="100000" min="0"></label>
+        </div>
+        <table class="projection-breakeven-table">
+          <thead><tr><th>Scenario</th><th id="proj-th-a-h">$1,000</th><th id="proj-th-b-h">$10,000</th><th id="proj-th-c-h">$100,000</th></tr></thead>
+          <tbody id="projection-breakeven-tbody"></tbody>
+        </table>
+        <svg id="projection-curve" class="projection-curve" viewBox="0 0 600 200"
+             preserveAspectRatio="none" aria-label="12-month cumulative spend"></svg>
+      </div>
+
+      <h3>Per-scenario cost</h3>
+      <ul class="summary-bars" id="summary-bars"></ul>
+      <canvas id="summary-chart" hidden></canvas>
+
+      <h3>When to use which</h3>
+      <div class="framework-grid">
+        <div class="framework-col" id="framework-native-col">
+          <h4>Native wins</h4>
+          <p id="framework-native-pattern">—</p>
+          <ul id="framework-native-bullets"></ul>
+        </div>
+        <div class="framework-col" id="framework-mcp-col">
+          <h4>MCP wins</h4>
+          <p id="framework-mcp-pattern">—</p>
+          <ul id="framework-mcp-bullets"></ul>
+        </div>
+      </div>
+
+      <h3>Run outcomes</h3>
+      <p class="muted">How runs landed across both paths. A high <em>succeeded</em> count is what you want. Other categories tell you why a path is unreliable.</p>
+      <div class="outcomes-rollup">
+        <div class="outcomes-row" id="outcomes-native-row">
+          <div class="outcomes-row-label">Native</div>
+          <div class="outcomes-row-bar" id="outcomes-native-bar"></div>
+        </div>
+        <div class="outcomes-row" id="outcomes-mcp-row">
+          <div class="outcomes-row-label">MCP</div>
+          <div class="outcomes-row-bar" id="outcomes-mcp-bar"></div>
+        </div>
+      </div>
+
+      <h3>Cache effectiveness</h3>
+      <p class="muted">Fraction of input-side tokens served from cache (vs freshly billed). Higher = more turns hit cache → lower steady-state cost.</p>
+      <div class="cache-rollup">
+        <div class="cache-tile">
+          <div class="cache-tile-label">Native</div>
+          <div class="cache-tile-value" id="cache-native">—</div>
+        </div>
+        <div class="cache-tile">
+          <div class="cache-tile-label">MCP</div>
+          <div class="cache-tile-value" id="cache-mcp">—</div>
+        </div>
+      </div>
+
+      <h3>Caveats</h3>
+      <ul id="summary-caveats"></ul>
+
+      <div class="actions">
+        <button id="export-pdf" class="secondary">⎙ Export PDF</button>
+      </div>
+    </section>
+  </main>
+
+  <script src="chart.min.js"></script>
+  <script>
+    (function () {
+      var p = new URLSearchParams(location.search);
+      window.__SHARE_TOKEN__ = p.get("token") || "";
+      window.__SHARE_GUEST__ = true;
+      window.__SHARE_EXPIRES_AT__ = null;
+      var s = document.createElement("script");
+      s.src = "app.js?v=" + Date.now();
+      document.body.appendChild(s);
+    })();
+  </script>
+</body>
+</html>

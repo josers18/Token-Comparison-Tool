@@ -2406,6 +2406,16 @@ body.printing #print-root { display: block; }
   .trace-delta-col, .trace-delta { display: none; }
 }
 
+/* Tier D: read-only share view banner. Sticky-bottom strip the recipient
+   sees so they know the link is time-bound. */
+.share-banner {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: var(--ink); color: var(--paper-50);
+  font: 12px var(--mono); padding: 8px 16px; text-align: center;
+  z-index: 100;
+}
+.share-view main { padding-bottom: 60px; }
+
 /* Tier C: per-run row expansion + replay panel. */
 .col-chev { width: 28px; padding: 0; }
 .chev-toggle { background: transparent; border: 0; cursor: pointer;

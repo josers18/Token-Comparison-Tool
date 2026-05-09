@@ -26,6 +26,34 @@ const state = {
   cameFromReports: false,
 };
 
+// Guest mode for read-only share links. Set by share.html before app.js loads.
+const isGuest = (typeof window !== "undefined") && !!window.__SHARE_GUEST__;
+const shareToken = isGuest ? (window.__SHARE_TOKEN__ || "") : "";
+state.guestMode = isGuest;
+
+// Map authenticated paths -> /api/share/<token>/... mirrors when guest mode
+// is active. Only the read-only endpoints are mirrored — all other paths
+// pass through unchanged (and 404 in guest mode, which the existing failure
+// handling already silently degrades).
+function apiPath(path) {
+  if (!isGuest || !shareToken) return path;
+  if (path.startsWith("/api/reports/latest/data")) {
+    return `/api/share/${shareToken}/data`;
+  }
+  if (path.match(/^\/api\/reports\/[^/]+\/data$/)) {
+    return `/api/share/${shareToken}/data`;
+  }
+  if (path.match(/^\/api\/reports\/[^/]+\/projection/)) {
+    const qs = path.split("?")[1] || "";
+    return `/api/share/${shareToken}/projection${qs ? "?" + qs : ""}`;
+  }
+  if (path.match(/^\/api\/scenarios\/[^/]+\/trace$/)) {
+    const sid = path.split("/")[3];
+    return `/api/share/${shareToken}/scenarios/${sid}/trace`;
+  }
+  return path;
+}
+
 function defaultModel(models) {
   if (!models || !models.length) return "";
   for (const m of models) if (m.toLowerCase().includes("sonnet")) return m;
@@ -819,7 +847,7 @@ function reportActionsCell(report) {
 
 async function loadReportById(reportId) {
   try {
-    const res = await fetch(`/api/reports/${encodeURIComponent(reportId)}/data`, { cache: "no-store" });
+    const res = await fetch(apiPath(`/api/reports/${encodeURIComponent(reportId)}/data`), { cache: "no-store" });
     const body = await res.json();
     if (!res.ok) {
       alert("Could not load report: " + (body.error || res.status));
@@ -881,7 +909,7 @@ async function registerLoadedScenarios(summary) {
 
   // Pull the full BenchmarkResult so each scenario detail has run buckets.
   try {
-    const res = await fetch("/api/reports/latest/data");
+    const res = await fetch(apiPath("/api/reports/latest/data"));
     if (res.ok) {
       const data = await res.json();
       hydrateScenarioRunsFromData(data);
@@ -1027,6 +1055,9 @@ function renderModelPills(containerId, models, activeModel, onSelect) {
 async function renderSparklines(scenarioId, model) {
   const row = $("sv-sparklines");
   if (!row) return;
+  // Hide sparklines in guest (share) mode — they would query /api/history
+  // and could leak names of other reports the recipient shouldn't see.
+  if (state.guestMode) { row.hidden = true; return; }
   if (!scenarioId || !model) { row.hidden = true; return; }
   const metrics = ["cost", "cache", "success", "p95_duration"];
   const results = await Promise.all(metrics.map((m) =>
@@ -1546,7 +1577,7 @@ async function enrichToolList(pathName) {
   let traceData = state._traceCache?.[sid];
   if (!traceData) {
     try {
-      const r = await fetch(`/api/scenarios/${encodeURIComponent(sid)}/trace`);
+      const r = await fetch(apiPath(`/api/scenarios/${encodeURIComponent(sid)}/trace`));
       if (!r.ok) return;
       traceData = await r.json();
       state._traceCache = state._traceCache || {};
@@ -1679,7 +1710,7 @@ async function loadAndRenderTrace(sid) {
   // Trace endpoint only has data AFTER a run completes. Skip while running.
   if (runStartTime && pollIntervalId) return;
   try {
-    const res = await fetch(`/api/scenarios/${encodeURIComponent(sid)}/trace`);
+    const res = await fetch(apiPath(`/api/scenarios/${encodeURIComponent(sid)}/trace`));
     if (!res.ok) return;
     const data = await res.json();
     if (!data || !data.native_traces) return;
@@ -1861,7 +1892,7 @@ async function pollForCompletion() {
 // land directly on its detail page (skipping the summary deck).
 async function hydrateFreeformAndShow() {
   try {
-    const res = await fetch("/api/reports/latest/data");
+    const res = await fetch(apiPath("/api/reports/latest/data"));
     if (!res.ok) return;
     const data = await res.json();
     const ff = data.freeform_scenario;
@@ -1917,7 +1948,7 @@ function hydrateScenarioRunsFromData(data) {
 
 async function hydrateSummaryFromBackend() {
   try {
-    const res = await fetch("/api/reports/latest/data");
+    const res = await fetch(apiPath("/api/reports/latest/data"));
     if (!res.ok) return;
     const data = await res.json();
     if (!data.scenarios) return;
@@ -2022,7 +2053,7 @@ async function fetchProjection(reportId) {
   if (ths.length > 0) params.set("thresholds", ths.join(","));
   if (model) params.set("model", model);
   try {
-    const r = await fetch(`/api/reports/${reportId}/projection?${params}`);
+    const r = await fetch(apiPath(`/api/reports/${reportId}/projection?${params}`));
     if (!r.ok) return null;
     return await r.json();
   } catch (_) {
@@ -2277,7 +2308,7 @@ async function showSummary() {
     let projModels = [];
     let projDefault = "";
     try {
-      const r = await fetch(`/api/reports/${activeReportId}/data`);
+      const r = await fetch(apiPath(`/api/reports/${activeReportId}/data`));
       if (r.ok) {
         const body = await r.json();
         projModels = body.models || (body.model ? [body.model] : []);
@@ -2586,11 +2617,52 @@ function waitForTrace(sid, timeoutMs) {
   });
 }
 
+// Guest-mode bootstrap (read-only share view). Skips SF login, hides nav
+// and run controls, fetches the shared report, lands on the summary view.
+async function bootstrapGuestMode() {
+  // Hide nav links — recipients can't navigate to admin/history/compare.
+  const nav = document.querySelector(".header-nav");
+  if (nav) nav.replaceChildren();
+  // Hide login/landing/setup/progress views (they're not on share.html
+  // anyway, but defensive).
+  for (const id of ["login-view", "landing-view", "setup-view", "progress-view"]) {
+    const e = document.getElementById(id);
+    if (e) e.hidden = true;
+  }
+  // Remove every "data-hide-in-guest" element (Share buttons, run controls).
+  for (const e of document.querySelectorAll("[data-hide-in-guest]")) {
+    e.remove();
+  }
+  // Footer banner with expiry.
+  if (window.__SHARE_EXPIRES_AT__) {
+    const banner = document.createElement("div");
+    banner.className = "share-banner";
+    banner.textContent = "Read-only shared view · expires "
+      + new Date(window.__SHARE_EXPIRES_AT__).toLocaleDateString();
+    document.body.appendChild(banner);
+  }
+  // Pull the shared report and render the summary view.
+  const r = await fetch(apiPath("/api/reports/latest/data"));
+  if (!r.ok) {
+    const err = document.createElement("p");
+    err.style.padding = "32px";
+    err.textContent = r.status === 410
+      ? "This share link has expired. Ask the owner for a new one."
+      : "This share link is invalid or the report no longer exists.";
+    document.body.appendChild(err);
+    return;
+  }
+  const data = await r.json();
+  hydrateScenarioRunsFromData(data);
+  showSummary();
+}
+
 // When the script is loaded by the cache-bust snippet (dynamically appended
 // to document.body), DOMContentLoaded has already fired, so we'd never run
 // init(). Check readyState and call init() directly when the DOM is ready.
+const _bootEntry = isGuest ? bootstrapGuestMode : init;
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", init);
+  document.addEventListener("DOMContentLoaded", _bootEntry);
 } else {
-  init();
+  _bootEntry();
 }
