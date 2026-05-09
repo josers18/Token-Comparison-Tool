@@ -16,6 +16,7 @@ import uvicorn
 from fastapi import UploadFile, File
 
 from token_compare.analysis import build_comparison, explain_comparison, extract_trace
+from token_compare.diff_explainer import diff_traces
 from token_compare.benchmark import BenchmarkOptions, ProgressEvent, run_benchmark
 from token_compare.preflight import check_environment
 from token_compare.report import default_report_path, write_markdown
@@ -1156,6 +1157,23 @@ def create_app(config: AppConfig) -> FastAPI:
         native_summary = build_comparison("Native", sr.native_runs, native_traces)
         mcp_summary = build_comparison("MCP", sr.mcp_runs, mcp_traces)
 
+        # Pick the representative trace from each path: first successful, or
+        # first if none succeeded. Mirrors how the existing summary view picks
+        # samples — keeps the diff card aligned with what the user already sees.
+        def _pick(traces: list) -> Optional[object]:
+            if not traces:
+                return None
+            succ = next((t for t in traces if t.succeeded), None)
+            return succ or traces[0]
+
+        native_first = _pick(native_traces)
+        mcp_first = _pick(mcp_traces)
+        turn_diffs_data: list = []
+        if native_first or mcp_first:
+            n_turns = [t.model_dump() for t in (native_first.turns if native_first else [])]
+            m_turns = [t.model_dump() for t in (mcp_first.turns if mcp_first else [])]
+            turn_diffs_data = [d.model_dump() for d in diff_traces(n_turns, m_turns)]
+
         return JSONResponse({
             "scenario_id": scenario_id,
             "native_traces": [t.model_dump() for t in native_traces],
@@ -1163,6 +1181,7 @@ def create_app(config: AppConfig) -> FastAPI:
             "native_summary": native_summary.model_dump(),
             "mcp_summary": mcp_summary.model_dump(),
             "explanation": explain_comparison(native_summary, mcp_summary),
+            "turn_diffs": turn_diffs_data,
         }, headers=_NO_STORE)
 
     @app.get("/callback")

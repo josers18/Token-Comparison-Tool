@@ -796,3 +796,73 @@ def test_history_endpoint_default_since_is_30_days(client, monkeypatch):
     # Only the recent row should appear.
     assert len(body["points"]) == 1
     assert body["points"][0]["report_id"] == "new"
+
+
+def test_scenario_trace_includes_turn_diffs(tmp_path, monkeypatch):
+    """After a benchmark run, /api/scenarios/{id}/trace returns turn_diffs."""
+    from unittest.mock import patch
+    from token_compare.api import AppConfig, create_app
+    from fastapi.testclient import TestClient
+    from token_compare.models import PathName, RunResult
+    from token_compare import db
+
+    scen = tmp_path / "scenarios"; scen.mkdir()
+    (scen / "sA.yaml").write_text(
+        "id: sA\ntitle: A\ncategory: c\ndifficulty: simple\n"
+        "prompt: x\nexpected_operations: []\nsuccess_criteria:\n  must_contain: []\n"
+    )
+    mcp = tmp_path / "mcp.json"; mcp.write_text("{}")
+    reports = tmp_path / "reports"; reports.mkdir()
+    cfg = AppConfig(scenarios_dir=scen, mcp_config_path=mcp,
+                    reports_dir=reports, static_dir=None)
+    client = TestClient(create_app(cfg))
+
+    async def _mock_get_sf_token(sid):
+        return {"access_token": "T", "instance_url": "https://x",
+                "issued_at": 0, "expires_at": 9999999999}
+    monkeypatch.setattr(db, "get_sf_token", _mock_get_sf_token)
+
+    def fake_run_once(scenario, path, **kwargs):
+        # Mock raw_json with one assistant turn whose cache_creation differs
+        # between paths — exactly the tool_list_reload pattern.
+        cache_create = 100 if path == PathName.NATIVE else 1500
+        return RunResult(
+            path=path, input_tokens=10, output_tokens=5,
+            cache_read_input_tokens=0, cache_creation_input_tokens=cache_create,
+            total_cost_usd=0.01, num_turns=1, duration_ms=100,
+            tool_calls=["Bash" if path == PathName.NATIVE else "mcp__x"],
+            succeeded=True, error=None,
+            raw_json=[
+                {"type": "system", "subtype": "init",
+                 "tools": ["Bash"] if path == PathName.NATIVE else ["Bash"]+["mcp__t"]*5,
+                 "mcp_servers": [] if path == PathName.NATIVE
+                                  else [{"name": "salesforce_crm"}]},
+                {"type": "assistant",
+                 "message": {"usage": {"input_tokens": 5, "output_tokens": 5,
+                                        "cache_read_input_tokens": 0,
+                                        "cache_creation_input_tokens": cache_create},
+                             "content": [{"type": "text", "text": "ok"}]}},
+                {"type": "result", "result": "ok", "is_error": False,
+                 "num_turns": 1, "duration_ms": 100, "total_cost_usd": 0.01,
+                 "usage": {"input_tokens": 5, "output_tokens": 5,
+                            "cache_read_input_tokens": 0,
+                            "cache_creation_input_tokens": cache_create},
+                 "terminal_reason": "completed"},
+            ],
+        )
+
+    with patch("token_compare.benchmark.run_once", side_effect=fake_run_once), \
+         patch("token_compare.benchmark._git_sha", return_value="abc"):
+        with client.stream("POST", "/api/run", json={
+            "scenario_ids": ["sA"], "runs_per_path": 1,
+            "models": ["claude-4-5-sonnet"], "operator": "me", "org_name": "o",
+        }) as resp:
+            list(resp.iter_text())
+
+    r = client.get("/api/scenarios/sA/trace")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "turn_diffs" in body
+    assert isinstance(body["turn_diffs"], list)
+    # MCP turn 1 had cache_create=1500 vs native 100 → tool_list_reload
+    assert any(d.get("reason") == "tool_list_reload" for d in body["turn_diffs"])
