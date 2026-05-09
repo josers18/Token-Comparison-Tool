@@ -169,3 +169,151 @@ def test_runner_traceback_none_on_success(monkeypatch, tmp_path):
     )
     assert r.succeeded is True
     assert r.runner_traceback is None
+
+
+def test_make_tool_call_detail_truncates_when_oversize():
+    """Inputs/outputs > 2KB get truncated with a marker; truncated=True."""
+    from token_compare.messages_runner import _make_tool_call_detail
+
+    big = "x" * 5000
+    d = _make_tool_call_detail(name="Bash", input_obj={"q": big}, output_str=big)
+    assert d.truncated is True
+    assert "[truncated" in d.input_excerpt
+    assert "[truncated" in d.output_excerpt
+    assert d.error is None
+
+
+def test_make_tool_call_detail_under_cap_not_truncated():
+    """Small inputs/outputs round-trip without truncation."""
+    from token_compare.messages_runner import _make_tool_call_detail
+
+    d = _make_tool_call_detail(
+        name="Bash",
+        input_obj={"command": "echo hi"},
+        output_str="hi\n",
+    )
+    assert d.truncated is False
+    assert "echo hi" in d.input_excerpt
+    assert "hi" in d.output_excerpt
+
+
+def test_make_tool_call_detail_binary_content_guard():
+    """Mostly non-printable output is replaced with a binary-content marker."""
+    from token_compare.messages_runner import _make_tool_call_detail
+    binary = bytes(range(256)).decode("latin-1")  # mostly non-printable
+    d = _make_tool_call_detail(name="Bash", input_obj={}, output_str=binary)
+    assert d.output_excerpt.startswith("[binary content")
+    assert "bytes" in d.output_excerpt
+
+
+def test_runner_captures_tool_call_details(monkeypatch, tmp_path):
+    """A successful run with one tool call populates tool_call_details."""
+    from token_compare.messages_runner import run_once
+    from token_compare.models import Scenario, SuccessCriteria, PathName
+    from unittest.mock import MagicMock
+
+    tool_use_block = MagicMock()
+    tool_use_block.type = "tool_use"
+    tool_use_block.id = "tool_1"
+    tool_use_block.name = "Bash"
+    tool_use_block.input = {"command": "echo hi"}
+
+    text_block = MagicMock()
+    text_block.type = "text"
+    text_block.text = "done"
+
+    resp1 = MagicMock()
+    resp1.stop_reason = "tool_use"
+    resp1.content = [tool_use_block]
+    resp1.usage = MagicMock(input_tokens=10, output_tokens=5,
+                             cache_read_input_tokens=0, cache_creation_input_tokens=0)
+
+    resp2 = MagicMock()
+    resp2.stop_reason = "end_turn"
+    resp2.content = [text_block]
+    resp2.usage = MagicMock(input_tokens=20, output_tokens=2,
+                             cache_read_input_tokens=0, cache_creation_input_tokens=0)
+
+    responses = iter([resp1, resp2])
+    fake_messages = MagicMock()
+    fake_messages.create = MagicMock(side_effect=lambda **kw: next(responses))
+    fake_client = MagicMock()
+    fake_client.messages = fake_messages
+    monkeypatch.setattr(
+        "token_compare.messages_runner.get_client_for_model",
+        lambda m: fake_client)
+    monkeypatch.setattr(
+        "token_compare.messages_runner.dispatch_native_tool",
+        lambda name, inp, tok: {"ok": True, "rows": []})
+
+    s = Scenario(id="sA", title="A", category="c", difficulty="simple",
+                 prompt="x", success_criteria=SuccessCriteria())
+    r = run_once(
+        s, PathName.NATIVE, model="claude-4-5-sonnet",
+        max_turns=5, timeout_s=30, mcp_template_path=tmp_path / "x.json",
+        sf_token={"access_token": "t", "instance_url": "https://x"},
+    )
+    assert r.succeeded is True
+    assert len(r.tool_call_details) == 1
+    detail = r.tool_call_details[0]
+    assert detail.name == "Bash"
+    assert "echo hi" in detail.input_excerpt
+    assert "ok" in detail.output_excerpt or "rows" in detail.output_excerpt
+    assert detail.truncated is False
+    assert detail.error is None
+
+
+def test_runner_captures_tool_error(monkeypatch, tmp_path):
+    """A tool that throws gets recorded with error message in detail.error."""
+    from token_compare.messages_runner import run_once
+    from token_compare.models import Scenario, SuccessCriteria, PathName
+    from unittest.mock import MagicMock
+
+    tool_use_block = MagicMock()
+    tool_use_block.type = "tool_use"
+    tool_use_block.id = "tool_1"
+    tool_use_block.name = "Bash"
+    tool_use_block.input = {"command": "boom"}
+
+    text_block = MagicMock()
+    text_block.type = "text"
+    text_block.text = "ok"
+
+    resp1 = MagicMock()
+    resp1.stop_reason = "tool_use"
+    resp1.content = [tool_use_block]
+    resp1.usage = MagicMock(input_tokens=10, output_tokens=5,
+                             cache_read_input_tokens=0, cache_creation_input_tokens=0)
+    resp2 = MagicMock()
+    resp2.stop_reason = "end_turn"
+    resp2.content = [text_block]
+    resp2.usage = MagicMock(input_tokens=20, output_tokens=2,
+                             cache_read_input_tokens=0, cache_creation_input_tokens=0)
+
+    responses = iter([resp1, resp2])
+    fake_messages = MagicMock()
+    fake_messages.create = MagicMock(side_effect=lambda **kw: next(responses))
+    fake_client = MagicMock()
+    fake_client.messages = fake_messages
+    monkeypatch.setattr(
+        "token_compare.messages_runner.get_client_for_model",
+        lambda m: fake_client)
+
+    def raising_tool(name, inp, tok):
+        raise RuntimeError("tool blew up")
+    monkeypatch.setattr(
+        "token_compare.messages_runner.dispatch_native_tool", raising_tool)
+
+    s = Scenario(id="sA", title="A", category="c", difficulty="simple",
+                 prompt="x", success_criteria=SuccessCriteria())
+    r = run_once(
+        s, PathName.NATIVE, model="claude-4-5-sonnet",
+        max_turns=5, timeout_s=30, mcp_template_path=tmp_path / "x.json",
+        sf_token={"access_token": "t", "instance_url": "https://x"},
+    )
+    # The run itself doesn't fail — the tool error is recorded as a
+    # tool_result with ERROR content, and the model gets to react.
+    assert len(r.tool_call_details) == 1
+    detail = r.tool_call_details[0]
+    assert detail.error is not None
+    assert "tool blew up" in detail.error

@@ -9,9 +9,76 @@ import anthropic
 
 from token_compare.inference_client import get_client_for_model
 from token_compare.mcp_proxy import McpProxy, load_specs_from_template
-from token_compare.models import ErrorResponse, InferenceError, PathName, RunResult, Scenario, SuccessCriteria
+from token_compare.models import (
+    ErrorResponse,
+    InferenceError,
+    PathName,
+    RunResult,
+    Scenario,
+    SuccessCriteria,
+    ToolCallDetail,
+)
 from token_compare.native_tools import NATIVE_TOOL_DEFS, dispatch_native_tool
 from token_compare.pricing import compute_cost_usd
+
+
+TOOL_IO_CAP = 2000
+
+
+def _make_tool_call_detail(
+    *,
+    name: str,
+    input_obj,
+    output_str: str,
+    error: Optional[str] = None,
+) -> ToolCallDetail:
+    """Build a ToolCallDetail with both sides truncated to TOOL_IO_CAP
+    chars and a binary-content guard on the output side.
+
+    The 2KB cap is per-side and intended for the SPA's per-run replay
+    panel, NOT for what we feed back to the model — `_tool_blocks_to_results`
+    keeps its own 50KB cap on the assistant-facing string. The binary
+    guard fires before truncation so a 5KB byte dump becomes
+    `"[binary content, 5000 bytes]"` instead of 2KB of unreadable junk.
+    """
+    truncated = False
+    try:
+        input_str = json.dumps(input_obj, indent=2, default=str, ensure_ascii=False)
+    except (TypeError, ValueError):
+        input_str = str(input_obj)
+    if len(input_str) > TOOL_IO_CAP:
+        extra = len(input_str) - TOOL_IO_CAP
+        input_str = input_str[:TOOL_IO_CAP] + f"…[truncated, {extra} more chars]"
+        truncated = True
+
+    out_str = output_str if isinstance(output_str, str) else str(output_str)
+    raw_len = len(out_str)
+    # Binary-content guard: replace if mostly non-printable (excluding
+    # common whitespace). Runs before truncation so a 5KB binary blob
+    # becomes a short marker instead of 2KB of garbage. We treat any
+    # character outside the printable-ASCII range (`!`–`~`, plus
+    # space/tab/newline) as suspicious — Python's `str.isprintable()`
+    # alone considers most latin-1 bytes (>=0x80) printable, which would
+    # let a raw byte dump slip through unflagged.
+    if raw_len > 0:
+        nonprint = sum(
+            1 for c in out_str
+            if (not c.isprintable() and c not in "\n\t ") or ord(c) > 126
+        )
+        if nonprint / raw_len > 0.5:
+            out_str = f"[binary content, {raw_len} bytes]"
+    if len(out_str) > TOOL_IO_CAP:
+        extra = len(out_str) - TOOL_IO_CAP
+        out_str = out_str[:TOOL_IO_CAP] + f"…[truncated, {extra} more chars]"
+        truncated = True
+
+    return ToolCallDetail(
+        name=name,
+        input_excerpt=input_str,
+        output_excerpt=out_str,
+        truncated=truncated,
+        error=error,
+    )
 
 
 SHARED_PREAMBLE = (
@@ -71,16 +138,24 @@ def _tool_blocks_to_results(
     *,
     sf_token: dict,
     mcp_proxy: Optional[McpProxy] = None,
+    tool_details_acc: Optional[list] = None,
 ) -> list[dict]:
     """Translate every tool_use block in the assistant turn into a
     tool_result block for the next user turn. Dispatches to the Native
     tool registry by default; if `mcp_proxy` is given, uses that instead
     (the MCP path).
+
+    If `tool_details_acc` is provided, also appends a `ToolCallDetail`
+    per tool call (capturing name, input, output, and error if any) for
+    the SPA's per-run replay panel. Storage is independent of what we
+    feed back to the model — the assistant-facing string keeps its 50KB
+    cap; the captured detail uses the tighter TOOL_IO_CAP.
     """
     out = []
     for blk in content_blocks:
         if getattr(blk, "type", None) != "tool_use":
             continue
+        tool_error: Optional[str] = None
         try:
             if mcp_proxy is not None:
                 # mcp_proxy.call already returns a string (text content
@@ -92,7 +167,15 @@ def _tool_blocks_to_results(
                 # than Python repr.
                 result_str = json.dumps(native_out, default=str)
         except Exception as e:
-            result_str = f"ERROR: {type(e).__name__}: {e}"
+            tool_error = f"{type(e).__name__}: {e}"
+            result_str = f"ERROR: {tool_error}"
+        if tool_details_acc is not None:
+            tool_details_acc.append(_make_tool_call_detail(
+                name=getattr(blk, "name", ""),
+                input_obj=getattr(blk, "input", None) or {},
+                output_str=result_str,
+                error=tool_error,
+            ))
         out.append({
             "type": "tool_result",
             "tool_use_id": blk.id,
@@ -152,6 +235,7 @@ def run_once(
         "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0,
     }
     tool_calls: list[str] = []
+    tool_call_details: list[ToolCallDetail] = []
     num_turns = 0
     final_text: str = ""
     error: Optional[str] = None
@@ -302,7 +386,10 @@ def run_once(
                     # native_tools; MCP uses the McpProxy aggregating upstream
                     # MCP servers.
                     tool_results = _tool_blocks_to_results(
-                        resp.content, sf_token=sf_token, mcp_proxy=mcp_proxy,
+                        resp.content,
+                        sf_token=sf_token,
+                        mcp_proxy=mcp_proxy,
+                        tool_details_acc=tool_call_details,
                     )
                     if not tool_results:
                         break
@@ -368,4 +455,8 @@ def run_once(
         error_response=error_response if error is not None else None,
         inference_error=inference_error if error is not None else None,
         runner_traceback=runner_traceback if error is not None else None,
+        # Populated for both successful and failed runs: the SPA's
+        # per-run replay panel needs to show what tools were called and
+        # what they returned even when nothing went wrong.
+        tool_call_details=tool_call_details,
     )
