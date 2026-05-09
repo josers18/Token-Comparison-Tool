@@ -1051,12 +1051,16 @@ async function renderSparklines(scenarioId, model) {
     }
     const seriesN = r.points.map((p) => p.native);
     const seriesM = r.points.map((p) => p.mcp);
-    const max = Math.max(...seriesN, ...seriesM, 1);
-    const W = 80, H = 30;
+    const max = Math.max(...seriesN, ...seriesM) || 1;
+    // Stroke-width 1.5 means half the line sits below y=H if we draw at the
+    // bottom edge. Reserve 1px of headroom on both edges so flat-zero series
+    // (e.g. cache hit = 0) and flat-max series stay fully visible.
+    const W = 80, H = 30, pad = 1.5;
     const ns = "http://www.w3.org/2000/svg";
     const mkPath = (vs, color) => {
+      const usable = H - 2 * pad;
       const d = vs.map((v, j) =>
-        `${j === 0 ? "M" : "L"} ${(j / Math.max(vs.length - 1, 1)) * W} ${H - (v / max) * H}`
+        `${j === 0 ? "M" : "L"} ${(j / Math.max(vs.length - 1, 1)) * W} ${(H - pad) - (v / max) * usable}`
       ).join(" ");
       const p = document.createElementNS(ns, "path");
       p.setAttribute("d", d);
@@ -1920,9 +1924,8 @@ function renderProjectionCurve(curve) {
   if (!curve.length) return;
   const W = 600, H = 200, pad = 20;
   const maxY = Math.max(
-    ...curve.map((c) => Math.max(c.native_cum, c.mcp_cum)),
-    1,
-  );
+    ...curve.map((c) => Math.max(c.native_cum, c.mcp_cum))
+  ) || 1;
   const months = curve.length;
   const x = (m) => pad + (months > 1 ? ((m - 1) / (months - 1)) : 0) * (W - 2 * pad);
   const y = (v) => H - pad - (v / maxY) * (H - 2 * pad);

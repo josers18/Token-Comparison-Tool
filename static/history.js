@@ -76,8 +76,8 @@ function renderChart(svgId, series, showMarkers) {
   }
   const W = 600, H = 200, pad = 24;
   const maxY = Math.max(
-    ...series.points.map((p) => Math.max(p.native, p.mcp)), 1
-  );
+    ...series.points.map((p) => Math.max(p.native, p.mcp))
+  ) || 1;
   const x = (i) => pad + (i / (series.points.length - 1)) * (W - 2 * pad);
   const y = (v) => H - pad - (v / maxY) * (H - 2 * pad);
   const ns = "http://www.w3.org/2000/svg";
