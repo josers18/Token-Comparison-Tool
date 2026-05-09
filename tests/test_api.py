@@ -702,3 +702,97 @@ def test_projection_endpoint_invalid_thresholds(client, monkeypatch):
     monkeypatch.setattr(db, "get_report", _mock_get_report)
     r = client.get("/api/reports/rpt_x/projection?volume=1000&period=month&thresholds=abc,def")
     assert r.status_code == 400
+
+
+def test_history_endpoint_returns_series(client, monkeypatch):
+    from token_compare import db
+    from datetime import datetime, timedelta, timezone
+
+    # Use a recent timestamp so the default 30-day since filter doesn't
+    # exclude this row (the test originally hardcoded 2026-04-01 which
+    # silently drifted out of the window as the calendar moved on).
+    recent = datetime.now(timezone.utc) - timedelta(days=1)
+    rows = [
+        {"id": "r1", "started_at": recent,
+         "payload_json": {
+            "model": "claude-4-5-sonnet", "models": ["claude-4-5-sonnet"],
+            "scenarios": [{
+                "scenario_id": "s1",
+                "runs_by_model": {"claude-4-5-sonnet": {
+                    "native_runs": [{"path": "native", "input_tokens": 1,
+                                      "output_tokens": 1,
+                                      "cache_read_input_tokens": 0,
+                                      "total_cost_usd": 0.01, "num_turns": 1,
+                                      "duration_ms": 1, "tool_calls": [],
+                                      "succeeded": True, "raw_json": {}}],
+                    "mcp_runs": [{"path": "mcp", "input_tokens": 1,
+                                   "output_tokens": 1,
+                                   "cache_read_input_tokens": 0,
+                                   "total_cost_usd": 0.02, "num_turns": 1,
+                                   "duration_ms": 1, "tool_calls": [],
+                                   "succeeded": True, "raw_json": {}}],
+                }},
+            }],
+        }},
+    ]
+    async def _mock_history(scenario_id, model):
+        return rows
+    monkeypatch.setattr(db, "list_finalized_reports_for_history",
+                        _mock_history, raising=False)
+
+    r = client.get("/api/history?scenario_id=s1&model=claude-4-5-sonnet&metric=cost")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["metric"] == "cost"
+    assert len(body["points"]) == 1
+    assert body["points"][0]["native"] == 0.01
+
+
+def test_history_endpoint_invalid_since(client, monkeypatch):
+    from token_compare import db
+    async def _mock_history(scenario_id, model): return []
+    monkeypatch.setattr(db, "list_finalized_reports_for_history",
+                        _mock_history, raising=False)
+    r = client.get("/api/history?scenario_id=s1&model=sonnet&since=not-a-date")
+    assert r.status_code == 400
+
+
+def test_history_endpoint_default_since_is_30_days(client, monkeypatch):
+    """No since param → server defaults to 30 days ago. Older points filtered out."""
+    from token_compare import db
+    from datetime import datetime, timedelta, timezone
+    old = datetime.now(timezone.utc) - timedelta(days=60)
+    recent = datetime.now(timezone.utc) - timedelta(days=5)
+    rows = [
+        {"id": "old", "started_at": old, "payload_json": {
+            "model": "sonnet", "models": ["sonnet"],
+            "scenarios": [{"scenario_id": "s1",
+                            "runs_by_model": {"sonnet": {
+                                "native_runs": [{"path":"native","input_tokens":1,
+                                  "output_tokens":1,"cache_read_input_tokens":0,
+                                  "total_cost_usd":0.01,"num_turns":1,
+                                  "duration_ms":1,"tool_calls":[],
+                                  "succeeded":True,"raw_json":{}}],
+                                "mcp_runs": []}},
+                          }]}},
+        {"id": "new", "started_at": recent, "payload_json": {
+            "model": "sonnet", "models": ["sonnet"],
+            "scenarios": [{"scenario_id": "s1",
+                            "runs_by_model": {"sonnet": {
+                                "native_runs": [{"path":"native","input_tokens":1,
+                                  "output_tokens":1,"cache_read_input_tokens":0,
+                                  "total_cost_usd":0.02,"num_turns":1,
+                                  "duration_ms":1,"tool_calls":[],
+                                  "succeeded":True,"raw_json":{}}],
+                                "mcp_runs": []}},
+                          }]}},
+    ]
+    async def _mock_history(scenario_id, model): return rows
+    monkeypatch.setattr(db, "list_finalized_reports_for_history",
+                        _mock_history, raising=False)
+    r = client.get("/api/history?scenario_id=s1&model=sonnet&metric=cost")
+    assert r.status_code == 200
+    body = r.json()
+    # Only the recent row should appear.
+    assert len(body["points"]) == 1
+    assert body["points"][0]["report_id"] == "new"

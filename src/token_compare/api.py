@@ -1009,6 +1009,32 @@ def create_app(config: AppConfig) -> FastAPI:
         )
         return JSONResponse(proj.model_dump(), headers=_NO_STORE)
 
+    @app.get("/api/history")
+    async def get_history(
+        scenario_id: str,
+        model: str,
+        metric: Literal["cost", "cache", "success", "p95_duration"] = "cost",
+        since: Optional[str] = None,
+    ) -> Response:
+        from datetime import datetime, timedelta, timezone
+        from token_compare import db
+        from token_compare.history import walk_history
+
+        if since:
+            try:
+                since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
+            except ValueError:
+                return JSONResponse({"error": "invalid since"}, status_code=400)
+        else:
+            since_dt = datetime.now(timezone.utc) - timedelta(days=30)
+
+        rows = await db.list_finalized_reports_for_history(scenario_id, model)
+        return JSONResponse(
+            walk_history(rows, scenario_id=scenario_id, model=model,
+                         metric=metric, since=since_dt),
+            headers=_NO_STORE,
+        )
+
     @app.post("/api/reports/load")
     async def upload_and_load_report(file: UploadFile = File(...)) -> dict:
         """Upload a .md or .json report file and hydrate it into _current_run.

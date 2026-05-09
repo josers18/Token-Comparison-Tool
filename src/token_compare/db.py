@@ -236,6 +236,31 @@ async def get_report(report_id: str) -> Optional[dict]:
     return d
 
 
+async def list_finalized_reports_for_history(
+    scenario_id: str, model: str
+) -> list[dict]:
+    """Return finalized reports newest-first with payload_json hydrated, for
+    the history walker. The walker filters by scenario_id/model itself —
+    we just deliver up to 200 finalized rows (recent are most relevant).
+    If history performance becomes a concern, materialize a view of
+    (report_id, scenario_id, model, ...) and query that instead."""
+    pool = await connect()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT id, started_at, payload_json FROM reports "
+            "WHERE payload_json IS NOT NULL "
+            "ORDER BY started_at DESC LIMIT 200"
+        )
+    out = []
+    for r in rows:
+        payload = r["payload_json"]
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        out.append({"id": r["id"], "started_at": r["started_at"],
+                    "payload_json": payload})
+    return out
+
+
 # ---- Runs ----
 
 async def insert_run(
