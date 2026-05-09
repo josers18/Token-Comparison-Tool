@@ -2516,3 +2516,17 @@ body.printing #print-root { display: block; }
   .projection-thresholds { flex-direction: column; }
   .projection-thresholds input { width: 100%; }
 }
+
+.sparkline-row { display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: 12px; margin: 16px 0; }
+.sparkline-cell { padding: 10px 12px; border: 1px solid var(--hair-2);
+  border-radius: var(--r-md, 6px); background: var(--paper-card); }
+.sparkline-label { font-size: 11px; color: var(--ink-mute);
+  text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+.sparkline { width: 100%; height: 30px; display: block; }
+.sparkline-value { font: 500 12px var(--mono, monospace); margin-top: 4px;
+  color: var(--ink); }
+
+@media (max-width: 720px) {
+  .sparkline-row { grid-template-columns: repeat(2, 1fr); }
+}

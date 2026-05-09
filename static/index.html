@@ -220,6 +220,29 @@
 
       <div class="model-pills" id="sv-model-pills" hidden></div>
 
+      <div class="sparkline-row" id="sv-sparklines" hidden>
+        <div class="sparkline-cell" data-metric="cost">
+          <div class="sparkline-label">Cost trend</div>
+          <svg class="sparkline" viewBox="0 0 80 30" preserveAspectRatio="none"></svg>
+          <div class="sparkline-value">—</div>
+        </div>
+        <div class="sparkline-cell" data-metric="cache">
+          <div class="sparkline-label">Cache hit</div>
+          <svg class="sparkline" viewBox="0 0 80 30" preserveAspectRatio="none"></svg>
+          <div class="sparkline-value">—</div>
+        </div>
+        <div class="sparkline-cell" data-metric="success">
+          <div class="sparkline-label">Success</div>
+          <svg class="sparkline" viewBox="0 0 80 30" preserveAspectRatio="none"></svg>
+          <div class="sparkline-value">—</div>
+        </div>
+        <div class="sparkline-cell" data-metric="p95_duration">
+          <div class="sparkline-label">p95 wall-clock</div>
+          <svg class="sparkline" viewBox="0 0 80 30" preserveAspectRatio="none"></svg>
+          <div class="sparkline-value">—</div>
+        </div>
+      </div>
+
       <div class="dual">
         <div class="panel native">
           <h3>Native · path A</h3>

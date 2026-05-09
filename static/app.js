@@ -1024,6 +1024,59 @@ function renderModelPills(containerId, models, activeModel, onSelect) {
   }
 }
 
+async function renderSparklines(scenarioId, model) {
+  const row = $("sv-sparklines");
+  if (!row) return;
+  if (!scenarioId || !model) { row.hidden = true; return; }
+  const metrics = ["cost", "cache", "success", "p95_duration"];
+  const results = await Promise.all(metrics.map((m) =>
+    fetch(`/api/history?scenario_id=${encodeURIComponent(scenarioId)}&model=${encodeURIComponent(model)}&metric=${m}`)
+      .then((r) => r.ok ? r.json() : { points: [] })
+      .catch(() => ({ points: [] }))
+  ));
+
+  const anyHasTrend = results.some((r) => r.points.length >= 2);
+  if (!anyHasTrend) { row.hidden = true; return; }
+  row.hidden = false;
+
+  results.forEach((r, i) => {
+    const cell = row.querySelector(`[data-metric="${metrics[i]}"]`);
+    if (!cell) return;
+    const svg = cell.querySelector("svg");
+    const val = cell.querySelector(".sparkline-value");
+    svg.replaceChildren();
+    if (r.points.length < 2) {
+      val.textContent = "(needs ≥2 reports)";
+      return;
+    }
+    const seriesN = r.points.map((p) => p.native);
+    const seriesM = r.points.map((p) => p.mcp);
+    const max = Math.max(...seriesN, ...seriesM, 1);
+    const W = 80, H = 30;
+    const ns = "http://www.w3.org/2000/svg";
+    const mkPath = (vs, color) => {
+      const d = vs.map((v, j) =>
+        `${j === 0 ? "M" : "L"} ${(j / Math.max(vs.length - 1, 1)) * W} ${H - (v / max) * H}`
+      ).join(" ");
+      const p = document.createElementNS(ns, "path");
+      p.setAttribute("d", d);
+      p.setAttribute("fill", "none");
+      p.setAttribute("stroke", color);
+      p.setAttribute("stroke-width", "1.5");
+      return p;
+    };
+    svg.appendChild(mkPath(seriesN, "var(--signal-vivid, #1a73e8)"));
+    svg.appendChild(mkPath(seriesM, "var(--counter-vivid, #d32f2f)"));
+    const last = r.points[r.points.length - 1];
+    const fmt = metrics[i] === "cost"
+      ? `$${last.native.toFixed(4)} / $${last.mcp.toFixed(4)}`
+      : metrics[i] === "cache" || metrics[i] === "success"
+      ? `${(last.native * 100).toFixed(0)}% / ${(last.mcp * 100).toFixed(0)}%`
+      : `${last.native.toFixed(0)} / ${last.mcp.toFixed(0)} ms`;
+    val.textContent = fmt;
+  });
+}
+
 function renderScenario(sid) {
   const scenario = state.scenarios.find((s) => s.id === sid);
   const bucket = activeBucket(sid);
@@ -1150,6 +1203,10 @@ function renderScenario(sid) {
 
   renderChartRows(bucket);
   loadAndRenderTrace(sid);
+
+  // Best-effort: pull regression history sparklines for this scenario+model.
+  // Don't block the page render if /api/history is slow.
+  renderSparklines(sid, state.activeModel || defaultModel(Object.keys(state.scenarioResults[sid] || {})));
 
   // Wire the scenario page's Download report button. The Export PDF button
   // is wired once at init() — it doesn't need per-render updating.
