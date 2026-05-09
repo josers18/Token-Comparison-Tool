@@ -2340,6 +2340,33 @@ body.printing #print-root { display: block; }
   /* Hide the on-screen actions row defensively (we already strip it during
      capture, but if a stale clone slips through this kills it). */
   .actions { display: none !important; }
+
+  /* Tier B: keep the projection panel + sparklines on a printable canvas.
+     Flatten card backgrounds to white so printer toner doesn't render the
+     translucent paper-card fill, and avoid splitting either across pages. */
+  .projection-panel,
+  .sparkline-row,
+  .sparkline-cell,
+  .hist-chart-cell {
+    background: white !important;
+    page-break-inside: avoid;
+  }
+  .projection-curve,
+  .sparkline,
+  .hist-chart-cell svg {
+    page-break-inside: avoid;
+  }
+  /* Live debounce inputs aren't useful on paper; keep the values legible
+     but drop the outline so they don't read as form fields. */
+  .projection-panel input,
+  .projection-panel select {
+    border: 0 !important;
+    background: transparent !important;
+    padding: 0 !important;
+  }
+  .segmented button {
+    border: 0 !important;
+  }
 }
 
 /* ═════════════════════════════════════════════════════════════
