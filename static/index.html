@@ -337,12 +337,42 @@
       </table>
 
       <h3>Cost at scale</h3>
-      <p class="muted">Estimate monthly token spend if you ran each scenario this many times per month.</p>
-      <div class="scale-control">
-        <span class="muted" id="summary-scale-summary">—</span>
-        <label>Runs / scenario / mo
-          <input type="number" id="summary-scale" value="10000" min="1" step="1000">
-        </label>
+      <p class="muted">Project token spend across volume + time. Native vs MCP totals, breakeven thresholds, and a 12-month cumulative curve.</p>
+      <div class="projection-panel" id="projection-panel">
+        <div class="projection-controls">
+          <label>Volume
+            <input type="number" id="projection-volume" value="10000" min="1" step="1000">
+          </label>
+          <label>Period
+            <div class="segmented" id="projection-period">
+              <button type="button" data-period="day">Daily</button>
+              <button type="button" data-period="month" class="active">Monthly</button>
+              <button type="button" data-period="year">Annual</button>
+            </div>
+          </label>
+          <label>Growth %/mo
+            <input type="number" id="projection-growth" value="0" min="0" step="1">
+          </label>
+          <label class="projection-model-label">Model
+            <select id="projection-model"></select>
+          </label>
+        </div>
+        <div class="projection-headline">
+          <div class="kpi"><div class="kpi-label">Native</div><div class="kpi-value" id="proj-native-total">—</div></div>
+          <div class="kpi"><div class="kpi-label">MCP</div><div class="kpi-value" id="proj-mcp-total">—</div></div>
+          <div class="kpi"><div class="kpi-label">Delta</div><div class="kpi-value" id="proj-delta">—</div></div>
+        </div>
+        <div class="projection-thresholds">
+          <label>Breakeven A <input type="number" id="proj-th-a" value="1000" min="0"></label>
+          <label>Breakeven B <input type="number" id="proj-th-b" value="10000" min="0"></label>
+          <label>Breakeven C <input type="number" id="proj-th-c" value="100000" min="0"></label>
+        </div>
+        <table class="projection-breakeven-table">
+          <thead><tr><th>Scenario</th><th id="proj-th-a-h">$1,000</th><th id="proj-th-b-h">$10,000</th><th id="proj-th-c-h">$100,000</th></tr></thead>
+          <tbody id="projection-breakeven-tbody"></tbody>
+        </table>
+        <svg id="projection-curve" class="projection-curve" viewBox="0 0 600 200"
+             preserveAspectRatio="none" aria-label="12-month cumulative spend"></svg>
       </div>
 
       <h3>Per-scenario cost</h3>

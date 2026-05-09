@@ -11,6 +11,7 @@ const state = {
   scenarioResults: {},   // { [sid]: { [model]: { native: RunResult[], mcp: RunResult[] } } }
   charts: {},
   reportPath: null,
+  activeReportId: null,  // db row id of the report being viewed (for /api/reports/{id}/* calls)
   active: "setup",
   // Reports analytics view state. Populated by loadReports(); the
   // table re-renders on filter/sort changes from this cache without
@@ -451,6 +452,7 @@ async function startRun() {
   $("progress-view").hidden = false;
   setStepperVisible(true);  // run is starting → stepper relevant
   state.cameFromReports = false;  // fresh run, not viewing a saved report
+  state.activeReportId = null;    // fresh run — id resolves once we hit /api/reports?limit=1
 
   const body = {
     scenario_ids: checked,
@@ -824,6 +826,7 @@ async function loadReportById(reportId) {
       return;
     }
     state.cameFromReports = true;
+    state.activeReportId = reportId;
     openLoadedReport(body);
   } catch (e) {
     alert("Could not load report: " + e.message);
@@ -1739,6 +1742,216 @@ function stopPolling() {
   }
 }
 
+// ═════════════════════════════════════════════════════════════
+//  Cost-at-scale projection panel (Tier B 3.3)
+//
+//  Lives inside the summary view. Hits /api/reports/{id}/projection
+//  every time an input changes (debounced). Persists thresholds +
+//  growth to localStorage so the user's preferred sizing sticks.
+// ═════════════════════════════════════════════════════════════
+
+const PROJ_DEBOUNCE_MS = 300;
+let projDebounceTimer = null;
+let projCurrentReportId = null;
+let _projectionInputsBound = false;
+
+function readProjectionInputs() {
+  const volume = parseInt($("projection-volume").value, 10) || 10000;
+  const period = document.querySelector("#projection-period .active")
+    ?.dataset.period || "month";
+  const growth = parseFloat($("projection-growth").value) || 0;
+  const ths = [
+    parseFloat($("proj-th-a").value) || 0,
+    parseFloat($("proj-th-b").value) || 0,
+    parseFloat($("proj-th-c").value) || 0,
+  ].filter((n) => n > 0);
+  const sel = $("projection-model");
+  const model = sel ? (sel.value || null) : null;
+  return { volume, period, growth, ths, model };
+}
+
+function persistProjectionPrefs() {
+  const { ths, growth } = readProjectionInputs();
+  try {
+    localStorage.setItem("tcs.proj.thresholds", JSON.stringify(ths));
+    localStorage.setItem("tcs.proj.growth", String(growth));
+  } catch (_) { /* localStorage may be disabled */ }
+}
+
+function loadProjectionPrefs() {
+  try {
+    const raw = localStorage.getItem("tcs.proj.thresholds");
+    if (raw) {
+      const ths = JSON.parse(raw);
+      if (Array.isArray(ths) && ths.length === 3) {
+        $("proj-th-a").value = ths[0];
+        $("proj-th-b").value = ths[1];
+        $("proj-th-c").value = ths[2];
+      }
+    }
+    const g = localStorage.getItem("tcs.proj.growth");
+    if (g != null) $("projection-growth").value = g;
+  } catch (_) { /* localStorage may be disabled */ }
+}
+
+function refreshThresholdHeaders() {
+  const fmt = (n) => "$" + Number(n).toLocaleString();
+  const a = $("proj-th-a-h"); if (a) a.textContent = fmt($("proj-th-a").value);
+  const b = $("proj-th-b-h"); if (b) b.textContent = fmt($("proj-th-b").value);
+  const c = $("proj-th-c-h"); if (c) c.textContent = fmt($("proj-th-c").value);
+}
+
+async function fetchProjection(reportId) {
+  const { volume, period, growth, ths, model } = readProjectionInputs();
+  const params = new URLSearchParams({
+    volume: String(volume),
+    period,
+    growth_rate_pct: String(growth),
+  });
+  if (ths.length > 0) params.set("thresholds", ths.join(","));
+  if (model) params.set("model", model);
+  try {
+    const r = await fetch(`/api/reports/${reportId}/projection?${params}`);
+    if (!r.ok) return null;
+    return await r.json();
+  } catch (_) {
+    return null;
+  }
+}
+
+function renderProjectionResult(p) {
+  const fmt$ = (v) => "$" + Number(v).toFixed(2);
+  $("proj-native-total").textContent = fmt$(p.native_total);
+  $("proj-mcp-total").textContent = fmt$(p.mcp_total);
+  const delta = p.delta;
+  const sign = delta >= 0 ? "+" : "−";
+  $("proj-delta").textContent = sign + fmt$(Math.abs(delta)).slice(1) +
+    (p.multiplier ? ` (${p.multiplier.toFixed(2)}×)` : "");
+  refreshThresholdHeaders();
+
+  const tbody = $("projection-breakeven-tbody");
+  tbody.replaceChildren();
+  // Group breakevens by scenario_id, preserving the order they came back in.
+  const byScenario = new Map();
+  for (const b of p.breakevens || []) {
+    if (!byScenario.has(b.scenario_id)) byScenario.set(b.scenario_id, []);
+    byScenario.get(b.scenario_id).push(b);
+  }
+  for (const [sid, rows] of byScenario.entries()) {
+    const tr = document.createElement("tr");
+    const sidTd = document.createElement("td");
+    sidTd.textContent = sid;
+    tr.appendChild(sidTd);
+    for (const b of rows) {
+      const td = document.createElement("td");
+      td.className = "col-num";
+      if (b.frame === "near_break_even") td.textContent = "≈ break-even";
+      else if (b.frame === "single_path_failed") td.textContent = "—";
+      else if (b.runs_to_breakeven == null) td.textContent = "—";
+      else td.textContent = b.runs_to_breakeven.toLocaleString();
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  renderProjectionCurve(p.curve || []);
+}
+
+function renderProjectionCurve(curve) {
+  const svg = $("projection-curve");
+  if (!svg) return;
+  svg.replaceChildren();
+  if (!curve.length) return;
+  const W = 600, H = 200, pad = 20;
+  const maxY = Math.max(
+    ...curve.map((c) => Math.max(c.native_cum, c.mcp_cum)),
+    1,
+  );
+  const months = curve.length;
+  const x = (m) => pad + (months > 1 ? ((m - 1) / (months - 1)) : 0) * (W - 2 * pad);
+  const y = (v) => H - pad - (v / maxY) * (H - 2 * pad);
+  const ns = "http://www.w3.org/2000/svg";
+  const mkPath = (key, color, dasharray) => {
+    const d = curve.map((c, i) =>
+      `${i === 0 ? "M" : "L"} ${x(c.month).toFixed(1)} ${y(c[key]).toFixed(1)}`
+    ).join(" ");
+    const p = document.createElementNS(ns, "path");
+    p.setAttribute("d", d);
+    p.setAttribute("fill", "none");
+    p.setAttribute("stroke", color);
+    p.setAttribute("stroke-width", "2");
+    if (dasharray) p.setAttribute("stroke-dasharray", dasharray);
+    return p;
+  };
+  // Native = green (signal), MCP = indigo (counter) — same swatches as
+  // the per-scenario cost bars so the panel reads as a continuation.
+  svg.appendChild(mkPath("native_cum", "var(--signal-vivid, #22C55E)"));
+  svg.appendChild(mkPath("mcp_cum", "var(--counter-vivid, #6366F1)"));
+}
+
+function bindProjectionInputs() {
+  const triggerRefresh = () => {
+    clearTimeout(projDebounceTimer);
+    projDebounceTimer = setTimeout(async () => {
+      persistProjectionPrefs();
+      refreshThresholdHeaders();
+      if (!projCurrentReportId) return;
+      const p = await fetchProjection(projCurrentReportId);
+      if (p) renderProjectionResult(p);
+    }, PROJ_DEBOUNCE_MS);
+  };
+  for (const id of ["projection-volume", "projection-growth",
+                     "proj-th-a", "proj-th-b", "proj-th-c"]) {
+    const el2 = $(id);
+    if (el2) el2.addEventListener("input", triggerRefresh);
+  }
+  for (const btn of document.querySelectorAll("#projection-period button")) {
+    btn.addEventListener("click", async () => {
+      document.querySelectorAll("#projection-period .active")
+        .forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      if (!projCurrentReportId) return;
+      const p = await fetchProjection(projCurrentReportId);
+      if (p) renderProjectionResult(p);
+    });
+  }
+  $("projection-model")?.addEventListener("change", async () => {
+    if (!projCurrentReportId) return;
+    const p = await fetchProjection(projCurrentReportId);
+    if (p) renderProjectionResult(p);
+  });
+}
+
+async function initProjectionPanel(reportId, models, defaultModelName) {
+  projCurrentReportId = reportId;
+  loadProjectionPrefs();
+  refreshThresholdHeaders();
+
+  const sel = $("projection-model");
+  if (sel) {
+    sel.replaceChildren();
+    for (const m of models) {
+      const o = document.createElement("option");
+      o.value = m;
+      o.textContent = m;
+      sel.appendChild(o);
+    }
+    sel.value = defaultModelName || (models[0] || "");
+    // Hide the Model picker when there's only one model in the report —
+    // the API will fall back to it implicitly.
+    const label = sel.closest("label");
+    if (label) label.hidden = (models.length <= 1);
+  }
+
+  // Bind once across re-entries to showSummary.
+  if (!_projectionInputsBound) {
+    bindProjectionInputs();
+    _projectionInputsBound = true;
+  }
+
+  const p = await fetchProjection(reportId);
+  if (p) renderProjectionResult(p);
+}
+
 async function showSummary() {
   state.active = "summary";
   stopPolling();
@@ -1833,36 +2046,40 @@ async function showSummary() {
     `${mcpSuccPct}%`,
     nativeSuccPct >= mcpSuccPct && nativeSuccPct > 0);
 
-  // ─── Cost-at-scale extrapolation ───
-  const scaleInput = $("summary-scale");
-  const scaleHint = $("summary-scale-summary");
-  function updateScale() {
-    const n = Math.max(1, parseInt(scaleInput.value, 10) || 0);
-    let totalPerRunNative = 0, totalPerRunMcp = 0;
-    for (const s of analysis.scenarios) {
-      totalPerRunNative += s.native_cost || 0;
-      totalPerRunMcp += s.mcp_cost || 0;
-    }
-    const monthlyNative = totalPerRunNative * n;
-    const monthlyMcp = totalPerRunMcp * n;
-    const delta = Math.abs(monthlyMcp - monthlyNative);
-    const cheaperLabel = monthlyNative < monthlyMcp ? "Native" : "MCP";
-
-    scaleHint.replaceChildren();
-    scaleHint.appendChild(document.createTextNode("At "));
-    scaleHint.appendChild(el("strong", { className: "num", text: n.toLocaleString() }));
-    scaleHint.appendChild(document.createTextNode(" runs/scenario/month: Native "));
-    scaleHint.appendChild(el("strong", { className: "num", text: `$${Math.round(monthlyNative).toLocaleString()}` }));
-    scaleHint.appendChild(document.createTextNode(" · MCP "));
-    scaleHint.appendChild(el("strong", { className: "num", text: `$${Math.round(monthlyMcp).toLocaleString()}` }));
-    scaleHint.appendChild(document.createTextNode(" → "));
-    const save = el("strong", { className: "num", text: `${cheaperLabel} saves $${Math.round(delta).toLocaleString()}/mo` });
-    save.style.color = "var(--signal-deep)";
-    scaleHint.appendChild(save);
+  // ─── Cost-at-scale projection panel (Tier B) ───
+  // Resolve the report id we're rendering against. Fresh benchmarks
+  // don't carry one through state — fall back to "the latest" since
+  // the just-finished run is always at the head of the list.
+  let activeReportId = state.activeReportId;
+  if (!activeReportId) {
+    try {
+      const r = await fetch("/api/reports?limit=1");
+      if (r.ok) {
+        const body = await r.json();
+        activeReportId = body.reports?.[0]?.name || null;
+      }
+    } catch (_) { /* silent — projection panel will no-op */ }
   }
-  scaleInput.removeEventListener("input", updateScale);
-  scaleInput.addEventListener("input", updateScale);
-  updateScale();
+  if (activeReportId) {
+    state.activeReportId = activeReportId;
+    // Build the model list for the projection model picker. /data is
+    // the canonical source; fall back to scenarioResults cube if it 404s.
+    let projModels = [];
+    let projDefault = "";
+    try {
+      const r = await fetch(`/api/reports/${activeReportId}/data`);
+      if (r.ok) {
+        const body = await r.json();
+        projModels = body.models || (body.model ? [body.model] : []);
+        projDefault = defaultModel(projModels);
+      }
+    } catch (_) { /* fall through to cube */ }
+    if (projModels.length === 0) {
+      projModels = [...allModels];
+      projDefault = state.activeModel || defaultModel(projModels);
+    }
+    await initProjectionPanel(activeReportId, projModels, projDefault);
+  }
 
   // ─── Per-scenario cost bars ───
   const bars = $("summary-bars");
