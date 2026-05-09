@@ -2416,6 +2416,23 @@ body.printing #print-root { display: block; }
 }
 .share-view main { padding-bottom: 60px; }
 
+/* Tier D: share modal. */
+.modal[hidden] { display: none; }
+.modal { position: fixed; inset: 0; z-index: 200;
+  display: flex; align-items: center; justify-content: center; }
+.modal-backdrop { position: absolute; inset: 0;
+  background: rgba(20, 18, 14, 0.4); }
+.modal-card { position: relative; z-index: 1;
+  background: var(--paper-card); border: 1px solid var(--hair-2);
+  border-radius: 8px; padding: 20px 24px; min-width: 480px; max-width: 600px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.15); }
+.modal-card input[type="text"] { width: 100%; padding: 8px;
+  font: 12px var(--mono); border: 1px solid var(--hair-2);
+  border-radius: 4px; margin: 12px 0; box-sizing: border-box; }
+.modal-row { display: flex; justify-content: space-between;
+  align-items: center; gap: 12px; }
+.modal-actions { display: flex; gap: 8px; }
+
 /* Tier C: per-run row expansion + replay panel. */
 .col-chev { width: 28px; padding: 0; }
 .chev-toggle { background: transparent; border: 0; cursor: pointer;

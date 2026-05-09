@@ -179,6 +179,33 @@ async function init() {
   const sPdfBtn = $("scenario-export-pdf");
   if (sPdfBtn) sPdfBtn.addEventListener("click", exportPdf);
 
+  // Tier D: share modal wiring (no-ops in guest mode — buttons are removed
+  // by bootstrapGuestMode before this fires).
+  const summaryShare = $("summary-share-btn");
+  if (summaryShare) summaryShare.addEventListener("click", openShareModal);
+  const scenarioShare = $("scenario-share-btn");
+  if (scenarioShare) scenarioShare.addEventListener("click", openShareModal);
+  const closeBtn = $("share-close");
+  if (closeBtn) closeBtn.addEventListener("click", closeShareModal);
+  const copyBtn = $("share-copy");
+  if (copyBtn) {
+    copyBtn.addEventListener("click", async () => {
+      const u = $("share-url").value;
+      try { await navigator.clipboard.writeText(u); } catch (_) { /* noop */ }
+      copyBtn.textContent = "Copied";
+      setTimeout(() => { copyBtn.textContent = "Copy"; }, 1500);
+    });
+  }
+  const regenBtn = $("share-regenerate");
+  if (regenBtn) {
+    regenBtn.addEventListener("click", () => {
+      if (state.activeReportId) regenerateShareLink(state.activeReportId, 30);
+    });
+  }
+  for (const el of document.querySelectorAll("[data-close]")) {
+    el.addEventListener("click", closeShareModal);
+  }
+
   // Freeform scenario controls
   const ffBtn = $("freeform-run-btn");
   const ffPrompt = $("freeform-prompt");
@@ -2615,6 +2642,46 @@ function waitForTrace(sid, timeoutMs) {
     };
     tick();
   });
+}
+
+// Tier D: share modal helpers. The modal lives in index.html; these
+// functions open/close it and back the Copy/Regenerate buttons.
+async function openShareModal() {
+  const reportId = state.activeReportId;
+  if (!reportId) {
+    alert("This view isn't tied to a saved report yet — share once it's persisted.");
+    return;
+  }
+  const modal = document.getElementById("share-modal");
+  if (modal) modal.hidden = false;
+  await regenerateShareLink(reportId, 30);
+}
+
+async function regenerateShareLink(reportId, ttlDays) {
+  const res = await fetch(`/api/reports/${encodeURIComponent(reportId)}/share`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ttl_days: ttlDays }),
+  });
+  if (!res.ok) {
+    alert("Couldn't issue share link (" + res.status + ")");
+    return;
+  }
+  const body = await res.json();
+  const urlInput = document.getElementById("share-url");
+  if (urlInput) {
+    urlInput.value = body.url;
+    urlInput.select();
+  }
+  const expiresEl = document.getElementById("share-expires");
+  if (expiresEl) {
+    expiresEl.textContent = new Date(body.expires_at).toLocaleDateString();
+  }
+}
+
+function closeShareModal() {
+  const m = document.getElementById("share-modal");
+  if (m) m.hidden = true;
 }
 
 // Guest-mode bootstrap (read-only share view). Skips SF login, hides nav

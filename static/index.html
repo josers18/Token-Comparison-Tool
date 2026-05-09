@@ -343,6 +343,7 @@
 
       <div class="actions" id="scenario-actions">
         <button id="scenario-export-pdf" class="secondary">⎙ Export PDF</button>
+        <button id="scenario-share-btn" class="secondary" data-hide-in-guest>↗ Share link</button>
         <a id="scenario-download-report" class="primary" href="#" download>↓ Download report</a>
       </div>
     </section>
@@ -449,12 +450,30 @@
       <ul id="summary-caveats"></ul>
 
       <div class="actions">
-        <button id="run-again" class="ghost">↻ Run again</button>
+        <button id="run-again" class="ghost" data-hide-in-guest>↻ Run again</button>
         <button id="export-pdf" class="secondary">⎙ Export PDF</button>
+        <button id="summary-share-btn" class="secondary" data-hide-in-guest>↗ Share link</button>
         <a id="download-report" class="primary" href="#" download>↓ Download report</a>
       </div>
     </section>
   </main>
+
+  <div id="share-modal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="share-modal-title">
+    <div class="modal-card">
+      <h3 id="share-modal-title">Share this report</h3>
+      <p class="muted">Anyone with this link can view this report read-only. The link expires automatically — share only what you'd be comfortable putting in Slack.</p>
+      <input id="share-url" type="text" readonly>
+      <div class="modal-row">
+        <span class="muted">Expires <span id="share-expires"></span></span>
+        <span class="modal-actions">
+          <button class="secondary" id="share-copy" type="button">Copy</button>
+          <button class="secondary" id="share-regenerate" type="button">Regenerate</button>
+          <button class="primary" id="share-close" type="button">Done</button>
+        </span>
+      </div>
+    </div>
+    <div class="modal-backdrop" data-close></div>
+  </div>
 
   <script src="chart.min.js"></script>
   <script>
