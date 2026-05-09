@@ -866,3 +866,58 @@ def test_scenario_trace_includes_turn_diffs(tmp_path, monkeypatch):
     assert isinstance(body["turn_diffs"], list)
     # MCP turn 1 had cache_create=1500 vs native 100 → tool_list_reload
     assert any(d.get("reason") == "tool_list_reload" for d in body["turn_diffs"])
+
+
+def test_post_share_returns_url(client, monkeypatch):
+    from token_compare import db
+    async def _get_report(rid):
+        if rid == "rpt_share":
+            return {"id": "rpt_share", "started_at": "2026-05-01T00:00:00+00:00",
+                    "payload_json": {"model": "sonnet", "models": ["sonnet"],
+                                       "scenarios": [], "runs_per_path": 1}}
+        return None
+    monkeypatch.setattr(db, "get_report", _get_report)
+
+    async def _mock_get_sf_token(sid):
+        return {"access_token": "T", "instance_url": "https://x", "issued_at": 0, "expires_at": 9999999999}
+    monkeypatch.setattr(db, "get_sf_token", _mock_get_sf_token)
+
+    r = client.post("/api/reports/rpt_share/share", json={})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "url" in body and "token" in body and "expires_at" in body
+    assert "/share/" in body["url"]
+
+
+def test_get_share_data_with_valid_token(client, monkeypatch):
+    from token_compare import db
+    from token_compare.share_token import issue
+    async def _get_report(rid):
+        if rid == "rpt_share":
+            return {"id": "rpt_share", "started_at": "2026-05-01T00:00:00+00:00",
+                    "payload_json": {"model": "sonnet", "models": ["sonnet"],
+                                       "scenarios": [], "runs_per_path": 1,
+                                       "started_at": "x", "finished_at": "y",
+                                       "operator": "me", "org_name": "o",
+                                       "tool_commit": "abc"}}
+        return None
+    monkeypatch.setattr(db, "get_report", _get_report)
+    token, _ = issue("rpt_share")
+    r = client.get(f"/api/share/{token}/data")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["model"] == "sonnet"
+
+
+def test_get_share_data_expired_returns_410(client):
+    from token_compare.share_token import issue
+    import time
+    token, _ = issue("rpt_x", ttl_days=0)
+    time.sleep(0.01)
+    r = client.get(f"/api/share/{token}/data")
+    assert r.status_code == 410
+
+
+def test_get_share_data_malformed_returns_410(client):
+    r = client.get("/api/share/not-a-token/data")
+    assert r.status_code == 410

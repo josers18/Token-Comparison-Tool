@@ -283,6 +283,12 @@ def _prune_reports(reports_dir: Path, retain: int) -> None:
         old.with_suffix(".json").unlink(missing_ok=True)
 
 
+class _ShareGone(Exception):
+    """Internal: signals 410 Gone for share endpoints. Raised by the share
+    verify helper so we can return a uniform 410 from a FastAPI exception
+    handler without threading the response object through every share route."""
+
+
 def create_app(config: AppConfig) -> FastAPI:
     app = FastAPI(title="Token Comparison Tool")
 
@@ -1009,6 +1015,129 @@ def create_app(config: AppConfig) -> FastAPI:
             model=model,
         )
         return JSONResponse(proj.model_dump(), headers=_NO_STORE)
+
+    @app.post("/api/reports/{report_id}/share")
+    async def issue_share(report_id: str, request: Request) -> Response:
+        """Issue a 30-day signed share link for this report. SF login required."""
+        from token_compare import db
+        from token_compare.share_token import issue as issue_token
+        sid, _ = await _get_or_create_sid_with_cookie(request)
+        sf_token = await _get_fresh_sf_token(sid)
+        if not sf_token:
+            return JSONResponse({"error": "Salesforce login required"}, status_code=401)
+        rec = await db.get_report(report_id)
+        if not rec:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        body: dict = {}
+        ct = request.headers.get("content-type", "")
+        if ct.startswith("application/json"):
+            try:
+                body = await request.json()
+            except Exception:
+                body = {}
+        ttl = int(body.get("ttl_days") or 30)
+        token, expires = issue_token(report_id, ttl_days=ttl)
+        base = str(request.url).split("/api/")[0].rstrip("/")
+        return JSONResponse({
+            "token": token,
+            "url": f"{base}/share/{token}",
+            "expires_at": expires.isoformat(timespec="seconds"),
+        })
+
+    @app.get("/share/{token}")
+    async def share_redirect(token: str):
+        """Pretty URL: redirect to the static share view with the token in query."""
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=f"/share.html?token={token}", status_code=307)
+
+    def _verify_share_or_410(token: str) -> str:
+        from token_compare.share_token import verify, ShareTokenError
+        try:
+            return verify(token)
+        except ShareTokenError as e:
+            raise _ShareGone(str(e))
+
+    @app.exception_handler(_ShareGone)
+    async def _share_gone_handler(request: Request, exc: _ShareGone) -> JSONResponse:
+        return JSONResponse({"error": str(exc)}, status_code=410)
+
+    @app.get("/api/share/{token}/data")
+    async def share_data(token: str) -> Response:
+        from token_compare import db
+        rid = _verify_share_or_410(token)
+        rec = await db.get_report(rid)
+        if not rec or not rec.get("payload_json"):
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return JSONResponse(_normalize_to_cube(rec["payload_json"]))
+
+    @app.get("/api/share/{token}/projection")
+    async def share_projection(
+        token: str,
+        volume: int = 10000,
+        period: Literal["day", "month", "year"] = "month",
+        growth_rate_pct: float = 0.0,
+        thresholds: Optional[str] = None,
+        model: Optional[str] = None,
+    ) -> Response:
+        from token_compare import db
+        from token_compare.models import BenchmarkResult
+        rid = _verify_share_or_410(token)
+        rec = await db.get_report(rid)
+        if not rec or not rec.get("payload_json"):
+            return JSONResponse({"error": "not found"}, status_code=404)
+        th_list: Optional[list[float]] = None
+        if thresholds:
+            try:
+                th_list = [float(x.strip()) for x in thresholds.split(",") if x.strip()]
+            except ValueError:
+                return JSONResponse({"error": "invalid thresholds"}, status_code=400)
+        payload = _normalize_to_cube(rec["payload_json"])
+        bench = BenchmarkResult.model_validate(payload)
+        proj = project_at_scale(
+            bench, runs_per_scenario_per_period=volume, period=period,
+            growth_rate_pct=growth_rate_pct, breakeven_thresholds_usd=th_list,
+            model=model,
+        )
+        return JSONResponse(proj.model_dump(), headers=_NO_STORE)
+
+    @app.get("/api/share/{token}/scenarios/{scenario_id}/trace")
+    async def share_scenario_trace(token: str, scenario_id: str) -> Response:
+        """Mirror of /api/scenarios/{id}/trace, but pulls from the shared report
+        instead of `_current_run` (the recipient is rarely the issuer)."""
+        from token_compare import db
+        from token_compare.models import BenchmarkResult
+        rid = _verify_share_or_410(token)
+        rec = await db.get_report(rid)
+        if not rec or not rec.get("payload_json"):
+            return JSONResponse({"error": "not found"}, status_code=404)
+        payload = _normalize_to_cube(rec["payload_json"])
+        result = BenchmarkResult.model_validate(payload)
+        sr = next((s for s in result.scenarios if s.scenario_id == scenario_id), None)
+        if not sr:
+            return JSONResponse({"error": "scenario not in report"}, status_code=404)
+        native_traces = [extract_trace(r) for r in sr.native_runs]
+        mcp_traces = [extract_trace(r) for r in sr.mcp_runs]
+        native_summary = build_comparison("Native", sr.native_runs, native_traces)
+        mcp_summary = build_comparison("MCP", sr.mcp_runs, mcp_traces)
+        def _pick(traces):
+            if not traces:
+                return None
+            return next((t for t in traces if t.succeeded), traces[0])
+        n_first = _pick(native_traces); m_first = _pick(mcp_traces)
+        turn_diffs_data = []
+        if n_first or m_first:
+            n_turns = [t.model_dump() for t in (n_first.turns if n_first else [])]
+            m_turns = [t.model_dump() for t in (m_first.turns if m_first else [])]
+            turn_diffs_data = [d.model_dump() for d in diff_traces(n_turns, m_turns)]
+        return JSONResponse({
+            "scenario_id": scenario_id,
+            "native_traces": [t.model_dump() for t in native_traces],
+            "mcp_traces": [t.model_dump() for t in mcp_traces],
+            "native_summary": native_summary.model_dump(),
+            "mcp_summary": mcp_summary.model_dump(),
+            "explanation": explain_comparison(native_summary, mcp_summary),
+            "turn_diffs": turn_diffs_data,
+        }, headers=_NO_STORE)
 
     @app.get("/api/history")
     async def get_history(
