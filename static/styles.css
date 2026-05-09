@@ -2390,6 +2390,22 @@ body.printing #print-root { display: block; }
 .model-pill.active { background: var(--ink); color: var(--paper-50);
   border-color: var(--ink); }
 
+/* Tier C: Δ column on the trace table. */
+.trace-delta-col { width: 18ch; }
+.trace-delta { vertical-align: top; padding-top: 6px;
+  font: 500 12px var(--mono); }
+.trace-delta-num { font: 600 13px var(--mono); }
+.trace-delta-num.up { color: var(--counter-vivid, #d32f2f); }
+.trace-delta-num.down { color: var(--signal-vivid, #1a73e8); }
+.trace-reason-chip { display: inline-block; margin-top: 4px;
+  padding: 1px 6px; border-radius: 999px; font-size: 11px;
+  background: var(--paper-100); color: var(--ink-mute);
+  border: 1px solid var(--hair-2); cursor: help; }
+
+@media (max-width: 720px) {
+  .trace-delta-col, .trace-delta { display: none; }
+}
+
 /* ═════════════════════════════════════════════════════════════
    Cost-at-scale projection panel (Tier B 3.3)
    ═════════════════════════════════════════════════════════════ */

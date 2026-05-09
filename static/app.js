@@ -1575,11 +1575,12 @@ async function loadAndRenderTrace(sid) {
     const tbody = $("trace-tbody");
     tbody.replaceChildren();
 
-    // First row: init metadata
+    // First row: init metadata (no Δ for the init row)
     const initRow = el("tr", {},
       el("td", { className: "turn-num", text: "init" }),
       el("td", { className: "meta-row" }, formatInit(nat)),
       el("td", { className: "meta-row" }, formatInit(mcp)),
+      el("td", { className: "trace-delta" }),
     );
     tbody.appendChild(initRow);
 
@@ -1588,6 +1589,7 @@ async function loadAndRenderTrace(sid) {
       nat ? nat.turns.length : 0,
       mcp ? mcp.turns.length : 0,
     );
+    const turnDiffs = data.turn_diffs || [];
     for (let i = 0; i < maxTurns; i++) {
       const natTurn = nat?.turns[i];
       const mcpTurn = mcp?.turns[i];
@@ -1595,12 +1597,37 @@ async function loadAndRenderTrace(sid) {
         el("td", { className: "turn-num", text: String(i + 1) }),
         el("td", {}, ...renderTurnCell(natTurn)),
         el("td", {}, ...renderTurnCell(mcpTurn)),
+        el("td", { className: "trace-delta" }, ...renderDeltaCell(turnDiffs[i])),
       );
       tbody.appendChild(tr);
     }
 
     card.hidden = false;
   } catch (_) { /* silent */ }
+}
+
+function renderDeltaCell(diff) {
+  // Build the Δ column for one turn. Empty when delta is below noise floor
+  // (<100 tokens). Color: red if MCP > native (MCP burned more), green if
+  // MCP < native (MCP saved). Reason chip below the number when set, with
+  // a tooltip explaining the heuristic is a best guess.
+  if (!diff || Math.abs(diff.total_delta) < 100) return [];
+  const sign = diff.total_delta > 0 ? "+" : "−";
+  const num = Math.abs(diff.total_delta).toLocaleString();
+  const numEl = el("div", {
+    className: "trace-delta-num " + (diff.total_delta > 0 ? "up" : "down"),
+    text: sign + num,
+  });
+  const nodes = [numEl];
+  if (diff.reason) {
+    const chip = el("span", {
+      className: "trace-reason-chip reason-" + diff.reason,
+      text: diff.hint || diff.reason,
+      attrs: { title: (diff.hint || diff.reason) + " — best guess based on token shape" },
+    });
+    nodes.push(chip);
+  }
+  return nodes;
 }
 
 function formatInit(trace) {
