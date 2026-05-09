@@ -921,3 +921,57 @@ def test_get_share_data_expired_returns_410(client):
 def test_get_share_data_malformed_returns_410(client):
     r = client.get("/api/share/not-a-token/data")
     assert r.status_code == 410
+
+
+def test_compare_endpoint_happy_path(client, monkeypatch):
+    from token_compare import db
+    payload_a = {"model": "sonnet", "models": ["sonnet"],
+                  "started_at": "2026-05-01T00:00:00+00:00",
+                  "finished_at": "2026-05-01T00:00:01+00:00",
+                  "operator": "me", "org_name": "o", "tool_commit": "abc",
+                  "runs_per_path": 1,
+                  "scenarios": [{"scenario_id": "s1",
+                                  "native_runs": [{"path": "native", "input_tokens": 1,
+                                                   "output_tokens": 1,
+                                                   "cache_read_input_tokens": 0,
+                                                   "total_cost_usd": 0.01,
+                                                   "num_turns": 1, "duration_ms": 100,
+                                                   "tool_calls": [], "succeeded": True,
+                                                   "raw_json": {}}],
+                                  "mcp_runs": [{"path": "mcp", "input_tokens": 1,
+                                                 "output_tokens": 1,
+                                                 "cache_read_input_tokens": 0,
+                                                 "total_cost_usd": 0.02,
+                                                 "num_turns": 1, "duration_ms": 100,
+                                                 "tool_calls": [], "succeeded": True,
+                                                 "raw_json": {}}]}]}
+    payload_b = {**payload_a, "scenarios": [{**payload_a["scenarios"][0],
+                                                "native_runs": [{**payload_a["scenarios"][0]["native_runs"][0],
+                                                                  "total_cost_usd": 0.012}]}]}
+    async def _get_report(rid):
+        if rid == "rpt_a": return {"id": "rpt_a", "payload_json": payload_a, "started_at": "x"}
+        if rid == "rpt_b": return {"id": "rpt_b", "payload_json": payload_b, "started_at": "y"}
+        return None
+    monkeypatch.setattr(db, "get_report", _get_report)
+    r = client.get("/api/reports/compare?a=rpt_a&b=rpt_b")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["model_used"] == "sonnet"
+    assert len(body["scenarios"]) == 1
+    assert body["scenarios"][0]["scenario_id"] == "s1"
+    # Report ids are backfilled by the endpoint.
+    assert body["report_a"]["id"] == "rpt_a"
+    assert body["report_b"]["id"] == "rpt_b"
+
+
+def test_compare_endpoint_404_on_missing(client, monkeypatch):
+    from token_compare import db
+    async def _get_report(rid): return None
+    monkeypatch.setattr(db, "get_report", _get_report)
+    r = client.get("/api/reports/compare?a=missing&b=alsomissing")
+    assert r.status_code == 404
+
+
+def test_compare_endpoint_400_on_same_id(client):
+    r = client.get("/api/reports/compare?a=same&b=same")
+    assert r.status_code == 400

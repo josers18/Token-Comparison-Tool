@@ -1016,6 +1016,29 @@ def create_app(config: AppConfig) -> FastAPI:
         )
         return JSONResponse(proj.model_dump(), headers=_NO_STORE)
 
+    @app.get("/api/reports/compare")
+    async def compare_endpoint(a: str, b: str, model: Optional[str] = None) -> Response:
+        """Diff two finalized reports. Returns ReportComparison JSON."""
+        from token_compare import db
+        from token_compare.models import _normalize_to_cube, BenchmarkResult
+        from token_compare.compare import compare_reports
+        if a == b:
+            return JSONResponse({"error": "comparing a report to itself"}, status_code=400)
+        rec_a = await db.get_report(a)
+        rec_b = await db.get_report(b)
+        if not rec_a or not rec_a.get("payload_json"):
+            return JSONResponse({"error": f"report {a} not found"}, status_code=404)
+        if not rec_b or not rec_b.get("payload_json"):
+            return JSONResponse({"error": f"report {b} not found"}, status_code=404)
+        bench_a = BenchmarkResult.model_validate(_normalize_to_cube(rec_a["payload_json"]))
+        bench_b = BenchmarkResult.model_validate(_normalize_to_cube(rec_b["payload_json"]))
+        cmp = compare_reports(bench_a, bench_b, model=model)
+        cmp_dict = cmp.model_dump()
+        # Backfill the DB ids (compare_reports doesn't see them).
+        cmp_dict["report_a"]["id"] = a
+        cmp_dict["report_b"]["id"] = b
+        return JSONResponse(cmp_dict, headers=_NO_STORE)
+
     @app.post("/api/reports/{report_id}/share")
     async def issue_share(report_id: str, request: Request) -> Response:
         """Issue a 30-day signed share link for this report. SF login required."""
