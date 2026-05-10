@@ -567,3 +567,224 @@
   letter-spacing: 0.06em;
   font-size: 10px;
 }
+
+/* §0 Landing / Login / Freeform ─────────────── */
+.landing-title {
+  font-family: var(--serif);
+  font-size: 36px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  margin: 16px 0 8px;
+  color: var(--ink-primary);
+}
+.landing-subtitle {
+  font-size: 15px;
+  color: var(--ink-secondary);
+  margin-bottom: 24px;
+}
+.landing-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+}
+.landing-card {
+  text-align: left;
+  padding: 22px 24px;
+  background: var(--surface-card);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  display: flex; flex-direction: column; gap: 8px;
+  transition: transform var(--duration-fast) var(--motion-snap),
+              box-shadow var(--duration-fast) var(--motion-snap);
+  backdrop-filter: blur(10px);
+}
+.landing-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-card-hover);
+}
+.landing-card-icon {
+  font-size: 24px;
+  color: var(--accent-native);
+}
+.landing-card-title {
+  font: 600 16px var(--sans);
+  color: var(--ink-primary);
+}
+.landing-card-desc {
+  font-size: 13px;
+  color: var(--ink-secondary);
+  line-height: 1.5;
+}
+.landing-card-cta {
+  margin-top: auto;
+  font: 500 12px var(--mono);
+  color: var(--accent-native);
+  letter-spacing: 0.04em;
+}
+
+.login-splash {
+  text-align: center;
+  padding: 60px 32px;
+}
+.login-title {
+  font-family: var(--serif);
+  font-size: 32px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  margin-bottom: 12px;
+}
+.login-subtitle {
+  font-size: 14px;
+  color: var(--ink-secondary);
+  margin-bottom: 24px;
+  max-width: 540px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.login-cta { font-size: 15px; padding: 12px 24px; }
+
+/* Stepper + scenario tabs ─────────────────────── */
+.stepper {
+  display: flex;
+  gap: 16px;
+  margin: 16px 0;
+  font: 500 11px var(--mono);
+  color: var(--ink-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.stepper a, .stepper span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-decoration: none;
+  color: var(--ink-tertiary);
+  padding: 4px 0;
+}
+.stepper a.active, .stepper span.active { color: var(--ink-primary); }
+.stepper a::before, .stepper span::before {
+  content: "";
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--ink-tertiary);
+}
+.stepper .active::before { background: var(--accent-native); }
+
+/* Trace table — uses .panel-style coloring ────── */
+.trace-table {
+  width: 100%;
+  border-collapse: collapse;
+  font: 500 12px var(--mono);
+  margin: 16px 0;
+}
+.trace-table th, .trace-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--hair);
+  vertical-align: top;
+  text-align: left;
+}
+.trace-table th {
+  color: var(--ink-tertiary);
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+.trace-table td.col-native { color: var(--ink-primary); }
+.trace-table td.col-mcp    { color: var(--ink-primary); }
+
+/* Sparkline rows in scenario detail ──────────── */
+.sparkline-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin: 12px 0;
+}
+.sparkline-cell {
+  padding: 12px 14px;
+  background: var(--surface-card);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-md);
+}
+.sparkline-cell svg { width: 100%; height: 30px; }
+.sparkline-cell svg path { stroke: var(--accent-native); fill: none; stroke-width: 1.5; }
+.sparkline-label {
+  font: 500 10px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-tertiary);
+}
+.sparkline-value {
+  font-family: var(--mono);
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink-primary);
+  margin-top: 4px;
+}
+
+/* Reports table (analytics) ─────────────────── */
+.reports-table {
+  width: 100%;
+  border-collapse: collapse;
+  font: 500 12px var(--mono);
+  margin: 12px 0;
+}
+.reports-table th {
+  color: var(--ink-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10px;
+  padding: 10px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--hair-2);
+  cursor: pointer;
+}
+.reports-table td {
+  padding: 8px;
+  border-bottom: 1px solid var(--hair);
+  color: var(--ink-secondary);
+}
+.reports-table tr:hover td { background: var(--surface-glass); }
+.reports-toolbar {
+  display: flex; gap: 12px; flex-wrap: wrap;
+  margin: 12px 0;
+}
+.reports-filter {
+  display: flex; flex-direction: column; gap: 4px;
+  font: 500 10px var(--mono);
+  color: var(--ink-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.reports-filter input, .reports-filter select {
+  padding: 6px 8px;
+  background: var(--surface-glass);
+  color: var(--ink-primary);
+  border: 1px solid var(--hair-2);
+  border-radius: var(--r-sm);
+  font: inherit;
+}
+
+/* Misc ───────────────────────────────────────── */
+.muted { color: var(--ink-tertiary); }
+.back-link {
+  font: 500 11px var(--mono);
+  color: var(--ink-tertiary);
+  text-decoration: none;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  display: inline-block;
+  margin-bottom: 12px;
+}
+.back-link:hover { color: var(--accent-native); }
+
+blockquote {
+  border-left: 3px solid var(--accent-native);
+  padding: 8px 16px;
+  background: var(--accent-native-fade);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  margin: 8px 0;
+  font-style: italic;
+  color: var(--ink-secondary);
+}
