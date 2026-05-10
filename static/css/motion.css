@@ -1,0 +1,41 @@
+/* tokenmeter — motion.css */
+
+@keyframes tm-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes tm-bar-grow {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+
+@keyframes tm-glow-pulse {
+  0%, 100% { opacity: var(--glow-opacity, 0.18); }
+  50%      { opacity: calc(var(--glow-opacity, 0.18) * 1.6); }
+}
+
+.tm-reveal {
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity var(--duration-mid, 260ms) var(--motion-out),
+              transform var(--duration-mid, 260ms) var(--motion-out);
+}
+.tm-reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.tm-bar-fill {
+  transform-origin: left center;
+  animation: tm-bar-grow var(--duration-slow, 460ms) var(--motion-spring) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tm-reveal { opacity: 1; transform: none; transition: none; }
+  .tm-bar-fill { animation: none; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
