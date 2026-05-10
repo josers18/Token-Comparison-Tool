@@ -299,30 +299,12 @@ async function loadScenarios() {
     meta.appendChild(el("span", { className: "pill", text: `~${total * 3} min total` }));
   }
 
-  const list = $("scenario-list");
-  // Preserve the static header row at the top — only wipe the data rows.
-  list.querySelectorAll("li:not(.scenario-list-header)").forEach((n) => n.remove());
-  for (const s of state.scenarios) {
-    const checkbox = el("input", {
-      attrs: { type: "checkbox", "data-sid": s.id, checked: "checked" },
-    });
-    const sid = el("div", { className: "sid", text: s.id.split("_")[0] });
-    // Strip a leading "scenario_id —" or em-dash prefix only; don't touch
-    // hyphenated words like "High-value".
-    const titleText = (s.title || "").replace(/^[^—:]*[—:]\s+/, "");
-    const title = el("div", { className: "stitle" },
-      el("strong", { text: s.id.split("_").slice(1).join("_") || s.id }),
-      " · ",
-      el("em", { text: titleText || s.title }),
-    );
-    const scope = el("div", { className: "scope", text: s.category || "" });
-    const diffClass = (s.difficulty || "").toLowerCase();
-    const tag = el("div", {
-      className: "stag" + (diffClass ? ` ${diffClass}` : ""),
-      text: s.difficulty || "",
-    });
-    list.appendChild(el("li", {}, checkbox, sid, title, scope, tag));
-  }
+  renderScenarioCardGrid(state.scenarios);
+  // Lazy-fetch sparkline data after first paint.
+  setTimeout(() => enrichWithSparklines(state.scenarios.map((s) => s.id)), 50);
+
+  const countEl = $("scenario-card-count");
+  if (countEl) countEl.textContent = `${total} scenarios`;
 
   // Wire the "select all" checkbox + sync indeterminate state.
   wireScenarioSelectAll();
@@ -330,6 +312,102 @@ async function loadScenarios() {
   if (state.preflight?.ok) $("run-btn").disabled = false;
   else showRemediation();
   buildStepper();
+}
+
+// Tier E (F4) — render the scenario catalog as a card grid. Selection state
+// lives in the DOM (per-tile checkbox `data-sid`); startRun() reads checked
+// boxes directly. The "select all" master is wired by wireScenarioSelectAll.
+function renderScenarioCardGrid(scenarios) {
+  const grid = document.getElementById("scenario-list");
+  if (!grid) return;
+  grid.replaceChildren();
+
+  state.sparkData = state.sparkData || {};
+
+  for (const sc of scenarios) {
+    const tile = document.createElement("div");
+    tile.className = "scenario-card-tile selected";
+    tile.setAttribute("role", "listitem");
+    tile.setAttribute("data-id", sc.id);
+    tile.setAttribute("data-category", sc.category || "");
+
+    const check = document.createElement("input");
+    check.type = "checkbox";
+    check.className = "check";
+    check.checked = true;  // catalog defaults to all selected (matches legacy behavior)
+    check.dataset.sid = sc.id;
+    check.addEventListener("click", (e) => e.stopPropagation());
+    check.addEventListener("change", () => {
+      tile.classList.toggle("selected", check.checked);
+    });
+    tile.appendChild(check);
+
+    const idLine = document.createElement("div");
+    idLine.className = "scenario-id";
+    const dot = document.createElement("span");
+    dot.className = "cat-dot";
+    idLine.appendChild(dot);
+    idLine.appendChild(document.createTextNode(sc.id));
+    tile.appendChild(idLine);
+
+    const title = document.createElement("div");
+    title.className = "scenario-title";
+    title.textContent = sc.title;
+    tile.appendChild(title);
+
+    const pillRow = document.createElement("div");
+    pillRow.className = "pill-row";
+    const cat = document.createElement("span");
+    cat.className = "pill";
+    cat.textContent = sc.category;
+    const diff = document.createElement("span");
+    diff.className = "pill";
+    diff.textContent = sc.difficulty;
+    pillRow.append(cat, diff);
+    tile.appendChild(pillRow);
+
+    // Sparkline placeholder; populated lazily by enrichWithSparklines.
+    const spark = document.createElement("div");
+    spark.className = "sparkline-empty";
+    spark.textContent = "no runs yet";
+    spark.dataset.sparkSlot = sc.id;
+    tile.appendChild(spark);
+
+    tile.addEventListener("click", () => {
+      check.checked = !check.checked;
+      check.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    grid.appendChild(tile);
+  }
+}
+
+async function enrichWithSparklines(scenarioIds) {
+  if (!scenarioIds.length) return;
+  try {
+    const r = await fetch(`/api/scenarios/sparkline?ids=${encodeURIComponent(scenarioIds.join(","))}`);
+    if (!r.ok) return;
+    const data = await r.json();
+    for (const sid of Object.keys(data)) {
+      const slot = document.querySelector(`[data-spark-slot="${sid}"]`);
+      if (!slot) continue;
+      const native = (data[sid].native || []).slice(0, 8).reverse();
+      const mcp = (data[sid].mcp || []).slice(0, 8).reverse();
+      if (!native.length && !mcp.length) continue;
+      const max = Math.max(...native, ...mcp, 0.001);
+      const sparkEl = document.createElement("div");
+      sparkEl.className = "sparkline";
+      const all = [...native.map((v) => ({ v, cls: "" })),
+                   ...mcp.map((v) => ({ v, cls: "mcp" }))];
+      for (const { v, cls } of all) {
+        const bar = document.createElement("span");
+        bar.className = "bar" + (cls ? " " + cls : "");
+        bar.style.height = `${Math.max(2, (v / max) * 24)}px`;
+        sparkEl.appendChild(bar);
+      }
+      slot.replaceWith(sparkEl);
+    }
+  } catch (_) { /* silent */ }
 }
 
 async function loadModels() {
@@ -377,7 +455,7 @@ function wireScenarioSelectAll() {
   // that may outlive the original master <input> if the DOM changes.
   const getMaster = () => $("scenario-list-toggle-all");
   const dataCheckboxes = () =>
-    Array.from(list.querySelectorAll("li:not(.scenario-list-header) input[type=checkbox]"));
+    Array.from(list.querySelectorAll(".scenario-card-tile input[type=checkbox]"));
 
   const syncMasterFromRows = () => {
     const master = getMaster();
@@ -404,20 +482,36 @@ function wireScenarioSelectAll() {
   // Idempotent listener attachment — the data attribute marks that we've
   // wired the master and the delegated row listener already.
   if (!list.dataset.toggleAllWired) {
+    // Per-tile change events bubble to #scenario-list (the new card-grid
+    // container) and update the master's indeterminate state.
     list.addEventListener("change", (e) => {
       if (!(e.target instanceof HTMLInputElement)) return;
-      if (e.target.id === "scenario-list-toggle-all") {
-        // Master toggled → sync all data rows.
-        const want = e.target.checked;
-        for (const c of dataCheckboxes()) c.checked = want;
-        e.target.indeterminate = false;
-        return;
-      }
-      if (e.target.matches("li:not(.scenario-list-header) input[type=checkbox]")) {
+      if (e.target.closest(".scenario-card-tile") &&
+          e.target.matches("input[type=checkbox]")) {
         syncMasterFromRows();
       }
     });
     list.dataset.toggleAllWired = "1";
+  }
+
+  // The master checkbox now lives outside #scenario-list (in
+  // .scenario-card-grid-controls), so its change event won't bubble into
+  // the delegated listener above. Wire it directly — also idempotent.
+  const master = getMaster();
+  if (master && !master.dataset.toggleAllWired) {
+    master.addEventListener("change", (e) => {
+      const want = e.target.checked;
+      for (const c of dataCheckboxes()) {
+        if (c.checked !== want) {
+          c.checked = want;
+          // Reflect selection styling on the tile.
+          const tile = c.closest(".scenario-card-tile");
+          if (tile) tile.classList.toggle("selected", want);
+        }
+      }
+      e.target.indeterminate = false;
+    });
+    master.dataset.toggleAllWired = "1";
   }
 
   syncMasterFromRows();
@@ -480,7 +574,7 @@ async function startRun() {
   // checkbox lives in a header row that has no data-sid and would
   // otherwise serialize as null.
   const checked = Array.from(document.querySelectorAll(
-    "#scenario-list li:not(.scenario-list-header) input[type=checkbox]:checked"
+    "#scenario-list .scenario-card-tile input[type=checkbox]:checked"
   ))
     .map((i) => i.dataset.sid)
     .filter(Boolean);
