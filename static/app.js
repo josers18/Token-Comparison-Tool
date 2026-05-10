@@ -1322,68 +1322,73 @@ function renderScenario(sid) {
   headlineEl.classList.remove("mcp");
 
   const verdict = $("sv-verdict");
-  const verdictText = $("sv-verdict-text");
-  const verdictIcon = $("sv-verdict-icon");
-  const verdictNum = $("sv-verdict-num");
 
   if (nativeMed && mcpMed) {
     const mult = mcpMed / nativeMed;
     verdict.hidden = false;
     verdict.classList.remove("mcp-win", "tied");
-    verdictNum.replaceChildren();
 
+    const eyebrow = $("sv-verdict-eyebrow");
+    const prefix = $("sv-verdict-prefix");
+    const suffix = $("sv-verdict-suffix");
+    const multSpan = $("sv-verdict-multiplier");
+    const savingsEl = $("sv-verdict-savings");
+    const tokEl = $("sv-verdict-tok-delta");
+
+    let displayMult;
     if (mult > 1.05) {
       // Native wins
       headlineEl.appendChild(document.createTextNode("Native was "));
       headlineEl.appendChild(el("em", { text: `${mult.toFixed(1)}× cheaper` }));
       headlineEl.appendChild(document.createTextNode(" on this scenario."));
 
-      verdictIcon.textContent = "↓";
-      verdictText.replaceChildren();
-      verdictText.appendChild(document.createTextNode("Native came in at "));
-      verdictText.appendChild(el("strong", { text: `$${nativeMed.toFixed(3)}` }));
-      verdictText.appendChild(document.createTextNode(", MCP at "));
-      verdictText.appendChild(el("strong", { text: `$${mcpMed.toFixed(3)}` }));
-      verdictText.appendChild(document.createTextNode(" — "));
-      verdictText.appendChild(el("strong", { text: `${mult.toFixed(1)}× cheaper` }));
-      verdictText.appendChild(document.createTextNode(" on this scenario."));
-
-      const delta = mcpInput - nativeInput;
-      verdictNum.appendChild(document.createTextNode("Δ tokens"));
-      verdictNum.appendChild(el("span", {
-        className: "delta",
-        text: `${delta < 0 ? "" : "−"}${Math.abs(delta).toLocaleString()} input`,
-      }));
+      eyebrow.textContent = `Verdict · ${sid || "scenario"}`;
+      prefix.textContent = "Native is";
+      suffix.textContent = "cheaper here.";
+      displayMult = mult;
+      verdict.classList.remove("mcp-win");
+      verdict.classList.remove("glow-mcp");
+      verdict.classList.add("glow-native");
     } else if (mult < 0.95) {
       // MCP wins
-      verdict.classList.add("mcp-win");
       headlineEl.classList.add("mcp");
       headlineEl.appendChild(document.createTextNode("MCP was "));
       headlineEl.appendChild(el("em", { text: `${(1 / mult).toFixed(1)}× cheaper` }));
       headlineEl.appendChild(document.createTextNode(" on this scenario."));
 
-      verdictIcon.textContent = "↓";
-      verdictText.replaceChildren();
-      verdictText.appendChild(document.createTextNode("MCP came in at "));
-      verdictText.appendChild(el("strong", { text: `$${mcpMed.toFixed(3)}` }));
-      verdictText.appendChild(document.createTextNode(", Native at "));
-      verdictText.appendChild(el("strong", { text: `$${nativeMed.toFixed(3)}` }));
-      verdictText.appendChild(document.createTextNode(" — "));
-      verdictText.appendChild(el("strong", { text: `${(1 / mult).toFixed(1)}× cheaper` }));
-      verdictText.appendChild(document.createTextNode(" on this scenario."));
-
-      const delta = nativeInput - mcpInput;
-      verdictNum.appendChild(document.createTextNode("Δ tokens"));
-      verdictNum.appendChild(el("span", {
-        className: "delta",
-        text: `${delta < 0 ? "" : "−"}${Math.abs(delta).toLocaleString()} input`,
-      }));
+      eyebrow.textContent = `Verdict · ${sid || "scenario"}`;
+      prefix.textContent = "MCP is";
+      suffix.textContent = "cheaper here.";
+      displayMult = 1 / mult;
+      verdict.classList.add("mcp-win");
+      verdict.classList.remove("glow-native");
+      verdict.classList.add("glow-mcp");
     } else {
-      verdict.classList.add("tied");
       headlineEl.textContent = "Effectively tied on token cost.";
-      verdictIcon.textContent = "≈";
-      verdictText.textContent = "Within 5% on this scenario — token cost is effectively tied.";
+
+      eyebrow.textContent = `Verdict · ${sid || "scenario"}`;
+      prefix.textContent = "Costs are";
+      suffix.textContent = "essentially equal.";
+      displayMult = 1.0;
+      verdict.classList.add("tied");
     }
+
+    // Animated counter on multiplier (1.0× → displayMult).
+    multSpan.textContent = `${displayMult.toFixed(1)}×`;
+    if (window.tokenmeter && window.tokenmeter.motion) {
+      window.tokenmeter.motion.animateCounter(multSpan, 1.0, displayMult, {
+        duration: 600,
+        format: (v) => `${v.toFixed(1)}×`,
+      });
+    }
+
+    // Callouts: monthly savings @ 10k runs, token delta.
+    const cheaper = Math.min(nativeMed, mcpMed);
+    const dearer = Math.max(nativeMed, mcpMed);
+    const savePerRun = dearer - cheaper;
+    savingsEl.textContent = `$${(savePerRun * 10000).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`;
+    const tokDelta = mcpInput - nativeInput;
+    tokEl.textContent = (tokDelta >= 0 ? "−" : "+") + Math.abs(tokDelta).toLocaleString() + " tok";
   } else {
     verdict.hidden = true;
     headlineEl.textContent = "—";

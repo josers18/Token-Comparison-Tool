@@ -55,10 +55,23 @@
         <blockquote id="sv-prompt"></blockquote>
       </div>
 
-      <div class="verdict" id="sv-verdict" hidden>
-        <div class="verdict-icon" id="sv-verdict-icon">↓</div>
-        <div class="verdict-text" id="sv-verdict-text">—</div>
-        <div class="verdict-num" id="sv-verdict-num"></div>
+      <div class="verdict-hero glow-native" id="sv-verdict" hidden>
+        <span class="hero-eyebrow" id="sv-verdict-eyebrow">Verdict</span>
+        <h2 class="hero-headline" id="sv-verdict-headline">
+          <span class="hero-prefix" id="sv-verdict-prefix">Native is</span>
+          <em class="hero-multiplier" id="sv-verdict-multiplier">1.0×</em>
+          <span class="hero-suffix" id="sv-verdict-suffix">cheaper here.</span>
+        </h2>
+        <div class="hero-callouts" id="sv-verdict-callouts">
+          <div class="callout callout-native">
+            <div class="callout-label">Save / 10k runs</div>
+            <div class="callout-value" id="sv-verdict-savings">—</div>
+          </div>
+          <div class="callout callout-mcp">
+            <div class="callout-label">Token delta</div>
+            <div class="callout-value" id="sv-verdict-tok-delta">—</div>
+          </div>
+        </div>
       </div>
 
       <div class="model-pills" id="sv-model-pills" hidden></div>
@@ -297,6 +310,7 @@
   <script src="chart.min.js"></script>
   <script src="js/theme.js?v=1"></script>
   <script src="js/themepuck.js?v=1"></script>
+  <script src="js/motion.js?v=1"></script>
   <script>
     (function () {
       var p = new URLSearchParams(location.search);

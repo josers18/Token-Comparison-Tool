@@ -107,3 +107,79 @@
   letter-spacing: 0.06em; text-transform: uppercase;
   margin-top: auto;
 }
+
+/* §3 Scenario detail — hero ──────────────────── */
+.verdict-hero {
+  position: relative;
+  padding: 28px 32px 24px;
+  background: var(--surface-card);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-lg);
+  margin: 16px 0 24px;
+  overflow: hidden;
+  backdrop-filter: blur(12px);
+}
+.verdict-hero .hero-eyebrow {
+  font: 500 10px var(--mono);
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--accent-native);
+}
+.verdict-hero .hero-headline {
+  font-family: var(--serif);
+  font-weight: 500;
+  font-size: 28px;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  margin-top: 8px;
+  color: var(--ink-primary);
+}
+.verdict-hero .hero-multiplier {
+  font-style: normal;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--accent-native), var(--accent-native-2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.verdict-hero.mcp-win .hero-multiplier {
+  background: linear-gradient(90deg, var(--accent-mcp), var(--accent-mcp-2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.verdict-hero .hero-callouts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 18px;
+}
+.verdict-hero .callout {
+  padding: 10px 14px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--hair-2);
+}
+.verdict-hero .callout-native {
+  background: var(--accent-native-fade);
+  border-color: var(--accent-native-fade);
+}
+.verdict-hero .callout-mcp {
+  background: var(--accent-mcp-fade);
+  border-color: var(--accent-mcp-fade);
+}
+.verdict-hero .callout-label {
+  font: 500 9px var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-tertiary);
+}
+.verdict-hero .callout-value {
+  font-family: var(--mono);
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+  font-size: 18px;
+  font-weight: 600;
+  margin-top: 4px;
+}
+.verdict-hero .callout-native .callout-value { color: var(--accent-native); }
+.verdict-hero .callout-mcp .callout-value    { color: var(--accent-mcp); }
