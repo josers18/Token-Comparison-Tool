@@ -65,11 +65,11 @@
 
   --glow-opacity: 0.18;
 
-  /* Legacy aliases — surfaces */
-  --paper-50:  #FBF9F3;
-  --paper-100: #F7F4ED;
-  --paper-200: #F1EDE3;
-  --paper-300: #E8E3D6;
+  /* Legacy aliases — surfaces (cool, NOT warm cream) */
+  --paper-50:  var(--surface-canvas);
+  --paper-100: #F2F2F7;
+  --paper-200: #ECECF3;
+  --paper-300: #E2E2EC;
   --paper-card: #FFFFFF;
 
   /* Legacy aliases — text */

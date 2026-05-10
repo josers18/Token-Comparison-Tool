@@ -1,0 +1,90 @@
+/* tokenmeter — overrides.css
+ *
+ * Spatial Glass typography overrides for legacy.css. Loaded LAST so it
+ * wins the cascade. Sans-default with Fraunces reserved for the few
+ * intentional editorial moments (verdict hero multiplier, share view
+ * headline, scenario-card titles in italic).
+ */
+
+/* Kill legacy editorial serif on every dashboard-style headline.
+   Numbers stay tabular mono; section titles become Inter Tight sans. */
+.catalog-title,
+.catalog-title em,
+.scenario-head h2,
+.framework-col h3,
+.hero-summary,
+.headline,
+.headline em,
+.per-run-card h3,
+.admin-form-card h2,
+.freeform-title {
+  font-family: var(--sans);
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink-primary);
+}
+
+/* `.hero` is the BIG number on each panel (Native input tokens / MCP input
+   tokens). Keep it tabular mono — that's the right voice for stats. */
+.panel .hero,
+.kpi-value,
+.cache-tile-value {
+  font-family: var(--mono);
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* Editorial italics on the catalog title — `.catalog-title em` was Fraunces
+   italic before. Keep the visual emphasis (italic) but in sans, not serif. */
+.catalog-title em {
+  font-style: italic;
+  font-weight: 600;
+}
+
+/* Cool canvas — the warm cream came from `--paper-50: #FBF9F3` used as
+   page background in legacy. We already retargeted the alias; this rule
+   makes sure no inline legacy background overrides it. */
+body { background: var(--surface-canvas); }
+
+/* Cards, panels, KPIs — let the new theme's surfaces show through.
+   Keep the legacy borders + spacing, just ditch the warm white. */
+.card,
+.panel,
+.kpi,
+.cache-tile,
+.per-run-card,
+.framework-col,
+.admin-form-card,
+.landing-card,
+.compare-card,
+.reports-table tbody tr:hover {
+  background: var(--surface-card);
+  border-color: var(--hair-2);
+  color: var(--ink-primary);
+}
+
+/* Run-summary headline ("Native cost ~34% less per task") — was Fraunces
+   italic display serif. That's the share-view hero moment by design;
+   keep it serif there. But on the in-app summary it competes with the
+   verdict hero. Make it sans. */
+#summary-view .headline {
+  font-family: var(--sans);
+  font-style: normal;
+  font-weight: 600;
+  font-size: 22px;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+/* Buttons — legacy `.primary` had warm tan background; route through
+   the active palette's gradient like the new theme expects. */
+.primary {
+  background: linear-gradient(135deg, var(--accent-native), var(--accent-native-2));
+  color: #FFFFFF;
+  border: 0;
+  box-shadow: 0 0 0 3px var(--accent-native-glow);
+}
+.primary:hover { transform: translateY(-1px); }
