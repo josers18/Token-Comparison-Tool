@@ -160,7 +160,7 @@ The "Run benchmark" CTA + runs-per-path / model / max-turns controls float as a 
 
 When a user issues a share link, the response includes an `og_url` pointing at `GET /og/<token>.png?theme=<mode>&palette=<palette>`. Server fetches the report and renders the PNG via **Pillow** (no headless browser): gradient rectangle background per palette tokens, Fraunces title, JetBrains Mono numbers (both fonts shipped in `static/fonts/` and registered with Pillow's `ImageFont.truetype`). Gradient *text* (the `1.5×` multiplier) renders as a flat mid-tone green from the palette since Pillow can't fill text with a gradient — visually 95% indistinguishable in Slack unfurls. Up to 8 PNGs per share token (one per look) are cached in a new `og_cache` Postgres table keyed by `(token, theme, palette)`. Cache TTL = same as share token TTL. The link recipient's `tokenmeter_theme` cookie picks which cached variant the unfurler is served via a 302 redirect; if no cookie, served the default variant.
 
-**Why not Playwright/Chromium:** the Heroku Chromium buildpack adds ~200MB to slug size, slows boot, and adds a moving part. Pillow lives in `requirements.txt` already (transitive via reportlab for PDF export). If fancier rendering is needed later, swap to Satori-on-Lambda or a dedicated worker — don't bloat the main dyno.
+**Why not Playwright/Chromium:** the Heroku Chromium buildpack adds ~200MB to slug size, slows boot, and adds a moving part. Pillow is a small (~3MB) addition to `requirements.txt` and well-maintained. If fancier rendering is needed later, swap to Satori-on-Lambda or a dedicated worker — don't bloat the main dyno.
 
 `<head>` of `share.html` ships:
 ```html
