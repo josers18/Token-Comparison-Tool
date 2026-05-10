@@ -243,3 +243,118 @@
   color: var(--ink-tertiary);
   letter-spacing: 0.06em;
 }
+
+/* §2 Setup / Progress ──────────────────────────── */
+.controls {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin: 12px 0;
+  padding: 16px;
+  background: var(--surface-card);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-md);
+  backdrop-filter: blur(8px);
+}
+.controls label {
+  display: flex; flex-direction: column; gap: 6px;
+  font: 500 11px var(--mono);
+  color: var(--ink-tertiary);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.controls select,
+.controls input[type="text"] {
+  padding: 7px 9px;
+  background: var(--surface-glass);
+  color: var(--ink-primary);
+  border: 1px solid var(--hair-2);
+  border-radius: var(--r-sm);
+  font: inherit;
+  text-transform: none;
+}
+
+.progress-bar {
+  position: relative;
+  height: 4px;
+  width: 100%;
+  background: var(--hair-2);
+  border-radius: 2px;
+  overflow: hidden;
+  margin: 12px 0;
+}
+.progress-bar .fill {
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg, var(--accent-native), var(--accent-native-2));
+  width: 0%;
+  transition: width var(--duration-mid) var(--motion-out);
+}
+
+/* §3 cont — dual panels under the verdict hero ─── */
+.dual {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin: 16px 0;
+}
+.panel {
+  padding: 18px 20px;
+  background: var(--surface-card);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-md);
+  backdrop-filter: blur(10px);
+  position: relative;
+}
+.panel.native {
+  border-top: 3px solid var(--accent-native);
+}
+.panel.mcp {
+  border-top: 3px solid var(--accent-mcp);
+}
+.panel h3 {
+  font: 500 11px var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-tertiary);
+}
+.panel.native h3 { color: var(--accent-native); }
+.panel.mcp h3    { color: var(--accent-mcp); }
+.panel .hero {
+  font-family: var(--mono);
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+  font-size: 36px;
+  font-weight: 600;
+  margin-top: 8px;
+  color: var(--ink-primary);
+}
+.panel .hero-label {
+  font: 500 10px var(--mono);
+  color: var(--ink-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.panel-meta {
+  display: flex; justify-content: space-between;
+  margin-top: 12px;
+  font: 500 11px var(--mono);
+  color: var(--ink-secondary);
+}
+.panel-meta div span {
+  margin-left: 6px; color: var(--ink-primary);
+}
+.panel-meta-secondary { color: var(--ink-tertiary); margin-top: 4px; }
+
+.tools {
+  margin-top: 12px;
+  list-style: none;
+  display: flex; flex-direction: column; gap: 4px;
+  font: 500 11px var(--mono);
+  color: var(--ink-secondary);
+}
+.tools li {
+  padding: 4px 8px;
+  background: var(--surface-glass);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-sm);
+}
