@@ -289,6 +289,26 @@ class _ShareGone(Exception):
     handler without threading the response object through every share route."""
 
 
+# In-memory cache for OG renders. Bounded — evict oldest at MAX entries.
+_OG_CACHE: dict[tuple[str, str, str], bytes] = {}
+_OG_CACHE_ORDER: list[tuple[str, str, str]] = []
+_OG_CACHE_MAX = 200
+
+
+def _og_cache_get(key: tuple[str, str, str]) -> Optional[bytes]:
+    return _OG_CACHE.get(key)
+
+
+def _og_cache_put(key: tuple[str, str, str], value: bytes) -> None:
+    if key in _OG_CACHE:
+        return
+    _OG_CACHE[key] = value
+    _OG_CACHE_ORDER.append(key)
+    while len(_OG_CACHE_ORDER) > _OG_CACHE_MAX:
+        oldest = _OG_CACHE_ORDER.pop(0)
+        _OG_CACHE.pop(oldest, None)
+
+
 def create_app(config: AppConfig) -> FastAPI:
     app = FastAPI(title="Token Comparison Tool")
 
@@ -1206,6 +1226,36 @@ def create_app(config: AppConfig) -> FastAPI:
             "explanation": explain_comparison(native_summary, mcp_summary),
             "turn_diffs": turn_diffs_data,
         }, headers=_NO_STORE)
+
+    @app.get("/og/{token_with_ext}")
+    async def og_card(
+        token_with_ext: str,
+        theme: Literal["light", "dark"] = "light",
+        palette: str = "teal-coral",
+    ) -> Response:
+        """Render (or serve from cache) a 1200x630 OG preview PNG for a share token."""
+        if not token_with_ext.endswith(".png"):
+            return JSONResponse({"error": "use .png extension"}, status_code=400)
+        token = token_with_ext[:-4]
+        rid = _verify_share_or_410(token)
+
+        cache_key = (token, theme, palette)
+        cached = _og_cache_get(cache_key)
+        if cached:
+            return Response(content=cached, media_type="image/png",
+                            headers={"Cache-Control": "public, max-age=86400"})
+
+        from token_compare import db
+        from token_compare.og_render import render_og_card
+        rec = await db.get_report(rid)
+        if not rec or not rec.get("payload_json"):
+            return JSONResponse({"error": "not found"}, status_code=404)
+
+        payload = _normalize_to_cube(rec["payload_json"])
+        png = render_og_card(payload, theme=theme, palette=palette)
+        _og_cache_put(cache_key, png)
+        return Response(content=png, media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=86400"})
 
     @app.get("/api/history")
     async def get_history(

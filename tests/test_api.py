@@ -1041,3 +1041,53 @@ def test_scenarios_sparkline_empty_when_no_reports(client, monkeypatch):
 def test_scenarios_sparkline_400_on_missing_ids(client):
     r = client.get("/api/scenarios/sparkline")
     assert r.status_code == 400
+
+
+def test_og_endpoint_renders_png(client, monkeypatch):
+    from token_compare import db
+    from token_compare.share_token import issue
+    payload = {"model":"sonnet","models":["sonnet"],
+               "started_at":"x","finished_at":"y","operator":"me",
+               "org_name":"o","tool_commit":"abc","runs_per_path":1,
+               "scenarios":[{"scenario_id":"s1",
+                              "native_runs":[{"path":"native","input_tokens":1,"output_tokens":1,
+                                              "cache_read_input_tokens":0,"total_cost_usd":0.62,
+                                              "num_turns":1,"duration_ms":100,"tool_calls":[],
+                                              "succeeded":True,"raw_json":{}}],
+                              "mcp_runs":   [{"path":"mcp","input_tokens":1,"output_tokens":1,
+                                              "cache_read_input_tokens":0,"total_cost_usd":0.93,
+                                              "num_turns":1,"duration_ms":100,"tool_calls":[],
+                                              "succeeded":True,"raw_json":{}}]}]}
+
+    async def _get_report(rid):
+        if rid == "rpt_og":
+            return {"id": "rpt_og", "payload_json": payload, "started_at": "x"}
+        return None
+    monkeypatch.setattr(db, "get_report", _get_report)
+
+    token, _ = issue("rpt_og")
+    r = client.get(f"/og/{token}.png?theme=light&palette=teal-coral")
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"] == "image/png"
+    assert len(r.content) > 1000
+
+
+def test_og_endpoint_410_on_invalid_token(client):
+    r = client.get("/og/not-a-real-token.png")
+    assert r.status_code == 410
+
+
+def test_og_endpoint_falls_back_on_invalid_palette(client, monkeypatch):
+    from token_compare import db
+    from token_compare.share_token import issue
+    payload = {"model":"sonnet","models":["sonnet"],
+               "started_at":"x","finished_at":"y","operator":"me",
+               "org_name":"o","tool_commit":"abc","runs_per_path":1,
+               "scenarios":[]}
+    async def _get_report(rid):
+        return {"id": rid, "payload_json": payload} if rid == "rpt_pal" else None
+    monkeypatch.setattr(db, "get_report", _get_report)
+    token, _ = issue("rpt_pal")
+    r = client.get(f"/og/{token}.png?theme=light&palette=bogus")
+    assert r.status_code == 200
+    assert len(r.content) > 1000

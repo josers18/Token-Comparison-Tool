@@ -28,6 +28,11 @@
     })();
   </script>
   <title>Shared report — Token Comparison Tool</title>
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Token Comparison Tool · Shared Report">
+  <meta property="og:description" content="Native vs MCP cost benchmark.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta property="og:image" id="og-image-meta" content="">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=Geist:wght@300..600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -320,6 +325,15 @@
       var s = document.createElement("script");
       s.src = "app.js?v=" + Date.now();
       document.body.appendChild(s);
+    })();
+  </script>
+  <script>
+    (function () {
+      if (!window.__SHARE_TOKEN__) return;
+      var theme = document.documentElement.dataset.theme || "light";
+      var palette = document.documentElement.dataset.palette || "teal-coral";
+      var url = "/og/" + window.__SHARE_TOKEN__ + ".png?theme=" + theme + "&palette=" + palette;
+      document.getElementById("og-image-meta").setAttribute("content", url);
     })();
   </script>
 </body>
