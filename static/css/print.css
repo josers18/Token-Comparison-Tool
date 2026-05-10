@@ -1,0 +1,51 @@
+/* tokenmeter — print.css
+ *
+ * Applies @media print only. Forces light theme for legibility on paper,
+ * removes glows, animations, and modal/banner UI.
+ */
+@media print {
+  :root[data-theme="dark"] {
+    --surface-canvas: #FFFFFF;
+    --surface-card:   #FFFFFF;
+    --surface-glass:  #FFFFFF;
+    --ink-primary:    #0B0F1F;
+    --ink-secondary:  #5A6178;
+    --ink-tertiary:   #8E94A8;
+    --hair:           rgba(11, 15, 31, 0.06);
+    --hair-2:         rgba(11, 15, 31, 0.10);
+    --hair-3:         rgba(11, 15, 31, 0.20);
+  }
+
+  body {
+    background: #FFFFFF !important;
+    color: #0B0F1F !important;
+  }
+
+  .glow-native::before, .glow-mcp::before { display: none !important; }
+
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+    backdrop-filter: none !important;
+  }
+
+  .app-header,
+  .stepper,
+  .controls,
+  .share-banner,
+  .modal,
+  #theme-puck-mount,
+  .header-nav,
+  .scenario-card-grid-controls { display: none !important; }
+
+  .card, .panel, .compare-card, .verdict-hero {
+    box-shadow: none !important;
+    page-break-inside: avoid;
+  }
+
+  .verdict-hero .hero-multiplier {
+    -webkit-text-fill-color: var(--accent-native) !important;
+    color: var(--accent-native) !important;
+    background: transparent !important;
+  }
+}
