@@ -22,6 +22,7 @@ reports/commands.log
 !docs/screenshots/*.jpg
 .playwright-mcp/
 node_modules/
+.superpowers/
 
 # IDE
 .vscode/
