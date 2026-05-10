@@ -406,9 +406,23 @@
       <p class="muted">Project token spend across volume + time. Native vs MCP totals, breakeven thresholds, and a 12-month cumulative curve.</p>
       <div class="projection-panel" id="projection-panel">
         <div class="projection-controls">
-          <label>Volume
-            <input type="number" id="projection-volume" value="10000" min="1" step="1000">
-          </label>
+          <div class="proj-slider-block">
+            <div class="proj-slider-row">
+              <span class="proj-slider-eyebrow">Volume / month</span>
+              <span class="proj-slider-readout" id="projection-volume-readout">10,000</span>
+            </div>
+            <input type="range" id="projection-volume" class="proj-slider"
+                   min="0" max="100" value="50" step="1"
+                   aria-label="Monthly volume on log scale, 10 to 1,000,000">
+            <div class="proj-slider-ticks" aria-hidden="true">
+              <span data-tick="10">10</span>
+              <span data-tick="100">100</span>
+              <span data-tick="1k">1k</span>
+              <span data-tick="10k">10k</span>
+              <span data-tick="100k">100k</span>
+              <span data-tick="1m">1M</span>
+            </div>
+          </div>
           <label>Period
             <div class="segmented" id="projection-period">
               <button type="button" data-period="day">Daily</button>

@@ -2155,8 +2155,49 @@ let projDebounceTimer = null;
 let projCurrentReportId = null;
 let _projectionInputsBound = false;
 
+// Log-scale volume slider: position 0..100 maps to 10..1,000,000 runs/month.
+function sliderToVolume(pos) {
+  const minLog = Math.log10(10);
+  const maxLog = Math.log10(1_000_000);
+  const log = minLog + (maxLog - minLog) * (pos / 100);
+  return Math.round(Math.pow(10, log));
+}
+
+function volumeToSlider(vol) {
+  const minLog = Math.log10(10);
+  const maxLog = Math.log10(1_000_000);
+  const log = Math.log10(Math.max(10, vol));
+  return ((log - minLog) / (maxLog - minLog)) * 100;
+}
+
+function formatVolume(n) {
+  if (n >= 1_000_000) return `${(n/1_000_000).toFixed(2).replace(/\.?0+$/, "")}M`;
+  if (n >= 1_000) return `${(n/1_000).toFixed(2).replace(/\.?0+$/, "")}k`;
+  return n.toLocaleString();
+}
+
+let _projVolumeRaf = 0;
+function onProjVolumeInput() {
+  const slider = $("projection-volume");
+  const readout = $("projection-volume-readout");
+  const vol = sliderToVolume(parseFloat(slider.value));
+  if (readout) readout.textContent = formatVolume(vol);
+  if (_projVolumeRaf) cancelAnimationFrame(_projVolumeRaf);
+  _projVolumeRaf = requestAnimationFrame(() => {
+    clearTimeout(projDebounceTimer);
+    projDebounceTimer = setTimeout(async () => {
+      persistProjectionPrefs();
+      refreshThresholdHeaders();
+      if (!projCurrentReportId) return;
+      const p = await fetchProjection(projCurrentReportId);
+      if (p) renderProjectionResult(p);
+    }, PROJ_DEBOUNCE_MS);
+  });
+}
+
 function readProjectionInputs() {
-  const volume = parseInt($("projection-volume").value, 10) || 10000;
+  const slider = $("projection-volume");
+  const volume = sliderToVolume(parseFloat(slider?.value ?? 50));
   const period = document.querySelector("#projection-period .active")
     ?.dataset.period || "month";
   const growth = parseFloat($("projection-growth").value) || 0;
@@ -2298,8 +2339,10 @@ function bindProjectionInputs() {
       if (p) renderProjectionResult(p);
     }, PROJ_DEBOUNCE_MS);
   };
-  for (const id of ["projection-volume", "projection-growth",
-                     "proj-th-a", "proj-th-b", "proj-th-c"]) {
+  // Volume slider has its own log-scale handler; the rest stay on triggerRefresh.
+  const slider = $("projection-volume");
+  if (slider) slider.addEventListener("input", onProjVolumeInput);
+  for (const id of ["projection-growth", "proj-th-a", "proj-th-b", "proj-th-c"]) {
     const el2 = $(id);
     if (el2) el2.addEventListener("input", triggerRefresh);
   }
@@ -2318,6 +2361,13 @@ function bindProjectionInputs() {
     const p = await fetchProjection(projCurrentReportId);
     if (p) renderProjectionResult(p);
   });
+
+  // Initialize readout from the slider's current position.
+  if (slider) {
+    const initialVol = sliderToVolume(parseFloat(slider.value));
+    const readout = $("projection-volume-readout");
+    if (readout) readout.textContent = formatVolume(initialVol);
+  }
 }
 
 async function initProjectionPanel(reportId, models, defaultModelName) {
