@@ -35,7 +35,7 @@ The current UI is well-crafted but quiet. Numbers don't pop, the catalog reads a
   - `static/styles.css` — `@import`s the four files, kept for backwards-compat link tags.
 - **`static/app.js`** — gains a `theme.js` module (loaded inline in `<head>` to prevent flash of wrong theme) and a `motion.js` helper (animated counters, intersection-observer reveal). Module size grows ~600 lines.
 - **`static/index.html`** + the four sibling pages — header gets the theme puck, body gets `data-theme` + `data-palette` attributes set by the inline pre-script.
-- **New file `static/og.html`** — Phase 2 — a server-side-rendered OG card template; FastAPI renders it to PNG via `playwright` headless on demand and caches in Postgres.
+- **New file `src/token_compare/og_render.py`** — Phase 2 — Pillow-based PNG renderer for OG cards. No HTML template, no headless browser; renders directly from theme tokens + report data. Caches in Postgres (`og_cache` table).
 
 ### File layout after Phase 2
 
@@ -46,7 +46,7 @@ static/
 ├── compare.html        # /compare entry (existing)
 ├── history.html        # leaderboard (Phase 2)
 ├── admin.html          # admin (existing)
-├── og.html             # OG card template (Phase 2)
+├── fonts/              # NEW (Phase 2) — self-hosted Fraunces + JetBrains Mono for Pillow OG renderer
 ├── css/
 │   ├── tokens.css      # NEW — theme tokens (8 looks)
 │   ├── base.css        # NEW — header, layout, common
@@ -98,6 +98,12 @@ Every theme defines the same set of tokens; only the values change:
 - `--glow-radius-sm`, `--glow-radius-lg`, `--glow-opacity`
 - `--motion-spring`, `--motion-snap`, `--motion-out` — easings
 - `--shadow-card`, `--shadow-card-hover`, `--shadow-modal`
+
+### Default for new visitors (decided)
+
+- **Mode:** follows `prefers-color-scheme`. Falls through to **light** if the user has no system preference set (kinder for projector demos and shared workstations).
+- **Palette:** `teal-coral` — the most distinctive of the four, least "default Tailwind". The other three are one click away in the puck.
+- **Override:** once a user touches the puck, `localStorage` wins forever; system preference is no longer consulted unless they re-enable "Match system" in the dropdown.
 
 ### The puck (theme selector)
 
@@ -152,7 +158,9 @@ The "Run benchmark" CTA + runs-per-path / model / max-turns controls float as a 
 
 ### F5 · Server-rendered OG cards (share)
 
-When a user issues a share link, the response includes an `og_url` pointing at `GET /og/<token>.png?theme=<mode>&palette=<palette>`. Server fetches the report, renders `static/og.html` populated with the verdict + numbers via `playwright` headless Chromium, caches the PNG in a new `og_cache` Postgres table keyed by `(token, theme, palette)`. Up to 8 PNGs per share token (one per look) are cached; `og.html` reads `?theme` + `?palette` query params at render time. Cache TTL = same as share token TTL. The link recipient's `tokenmeter_theme` cookie picks which cached variant the unfurler is served via a 302 redirect; if no cookie, served the default variant.
+When a user issues a share link, the response includes an `og_url` pointing at `GET /og/<token>.png?theme=<mode>&palette=<palette>`. Server fetches the report and renders the PNG via **Pillow** (no headless browser): gradient rectangle background per palette tokens, Fraunces title, JetBrains Mono numbers (both fonts shipped in `static/fonts/` and registered with Pillow's `ImageFont.truetype`). Gradient *text* (the `1.5×` multiplier) renders as a flat mid-tone green from the palette since Pillow can't fill text with a gradient — visually 95% indistinguishable in Slack unfurls. Up to 8 PNGs per share token (one per look) are cached in a new `og_cache` Postgres table keyed by `(token, theme, palette)`. Cache TTL = same as share token TTL. The link recipient's `tokenmeter_theme` cookie picks which cached variant the unfurler is served via a 302 redirect; if no cookie, served the default variant.
+
+**Why not Playwright/Chromium:** the Heroku Chromium buildpack adds ~200MB to slug size, slows boot, and adds a moving part. Pillow lives in `requirements.txt` already (transitive via reportlab for PDF export). If fancier rendering is needed later, swap to Satori-on-Lambda or a dedicated worker — don't bloat the main dyno.
 
 `<head>` of `share.html` ships:
 ```html
@@ -243,7 +251,16 @@ Reshape the existing flat list into a leaderboard:
 - Filter chips: model, operator, scope, date range
 - "Compare to champion" button on each row → `/compare?a=<champion>&b=<row>`
 
-**Acceptance:** Same `/api/reports?limit=200` endpoint. Sort + filter client-side. Champion logic: lowest median Native cost across shared scenarios with the most recent report. Delta arrow uses the next-most-recent same-model report as comparison.
+**Acceptance:** Same `/api/reports?limit=200` endpoint. Sort + filter client-side.
+
+**Champion logic (decided):**
+- **Eligibility:** only reports that ran ≥80% of the *current* scenario catalog compete. Reports that ran a tiny subset can't accidentally win.
+- **Rule:** lowest median Native cost across the catalog wins.
+- **Tiebreaker:** most recent wins (rewards iteration).
+- **Manual pin:** an admin button on `/history` pins a specific report as champion regardless of the rule. Useful when leadership wants the "official benchmark of record" frozen for a quarter. Pin state stored in a new `app_settings` row keyed by `champion_pin_report_id`.
+- **Footnote:** a small "How was this picked?" link under the champion ribbon expands to explain the rule + show whether the pin is active.
+
+Delta arrow uses the next-most-recent same-model report as comparison.
 
 ### F12 · ⌘K command palette
 
@@ -278,7 +295,7 @@ Always-available, collapsed-by-default panel pinned bottom of the app (or as a s
 
 Toggle: `⌥E` or click the small pulse indicator in the header. Persists across navigation. Auto-clears on benchmark complete unless pinned.
 
-**Acceptance:** Doesn't interfere with primary content (max-height 240px when expanded, never overlaps the main panel). Reads from a new `/api/events/stream` endpoint that mirrors run events + adds tool/cache/error events, scoped by `sid` (the existing signed-cookie session id from `sessions.py` — same auth posture as `/api/run`). Falls back to log entries from `/api/run/status` when SSE unavailable. New `event_log` table (append-only, 7-day retention) stores recent events for the polling fallback.
+**Acceptance:** Doesn't interfere with primary content (max-height 240px when expanded, never overlaps the main panel). Reads from a new `/api/events/stream` endpoint that mirrors run events + adds **tool calls, cache hits, and errors only** (decided scope — these affect the cost narrative the user is watching). DB writes, OAuth refreshes, and other plumbing events are intentionally excluded — they'd drown the signal. Scoped by `sid` (the existing signed-cookie session id from `sessions.py` — same auth posture as `/api/run`). Falls back to log entries from `/api/run/status` when SSE unavailable. New `event_log` table (append-only, 7-day retention) stores recent events for the polling fallback.
 
 ---
 
@@ -323,15 +340,6 @@ Toggle: `⌥E` or click the small pulse indicator in the header. Persists across
 - No internationalization. Copy stays English-only.
 - No A/B testing infrastructure. Theme is user-chosen, not bucketed.
 - No real-time multi-user features. Sessions stay single-operator.
-
----
-
-## Open questions for review
-
-1. **Heroku Chromium buildpack for OG rendering** — adds ~200MB to slug. Alternative: render OG cards client-side via canvas (smaller, but loses serif font fidelity). Default is the buildpack.
-2. **Default palette + mode for new visitors** — currently spec says "Match system" with `teal-coral` as the fallback palette. Confirm.
-3. **`/history` leaderboard champion logic** — picks lowest median Native cost. Should this be configurable (fastest? most successful? user-pinned)?
-4. **Live event ticker scope** — Phase 2 spec includes tool calls, cache, errors. Should it also surface DB writes, OAuth refreshes, anything else?
 
 ---
 
