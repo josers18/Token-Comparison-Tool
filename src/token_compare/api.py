@@ -405,6 +405,51 @@ def create_app(config: AppConfig) -> FastAPI:
         body = [s.model_dump() for s in await load_all_from_db()]
         return JSONResponse(body, headers=_NO_STORE)
 
+    @app.get("/api/scenarios/sparkline")
+    async def scenarios_sparkline(ids: Optional[str] = None) -> JSONResponse:
+        """Return up to 20 most-recent runs of native/mcp median cost per scenario.
+
+        Query: ids = comma-separated scenario_ids (e.g., 's01,s02,s03').
+        Returns: {scenario_id: {native: [cost, cost, ...], mcp: [cost, cost, ...]}}.
+        Reports without that scenario are skipped. Most-recent run first.
+        """
+        if not ids:
+            return JSONResponse({"error": "ids query param required"}, status_code=400)
+        requested = [s.strip() for s in ids.split(",") if s.strip()]
+        if not requested:
+            return JSONResponse({}, headers=_NO_STORE)
+
+        from token_compare import db
+        from token_compare.models import _normalize_to_cube
+        from statistics import median
+
+        reports = await db.list_recent_reports(limit=20)
+        out: dict[str, dict[str, list[float]]] = {}
+        for rec in reports:
+            payload = rec.get("payload_json")
+            if not payload:
+                continue
+            try:
+                cube = _normalize_to_cube(payload)
+            except Exception:
+                continue
+            for sc in cube.get("scenarios", []):
+                sid = sc.get("scenario_id")
+                if sid not in requested:
+                    continue
+                n_costs = [r["total_cost_usd"] for r in sc.get("native_runs", [])
+                           if r.get("succeeded")]
+                m_costs = [r["total_cost_usd"] for r in sc.get("mcp_runs", [])
+                           if r.get("succeeded")]
+                if not n_costs and not m_costs:
+                    continue
+                entry = out.setdefault(sid, {"native": [], "mcp": []})
+                if n_costs:
+                    entry["native"].append(float(median(n_costs)))
+                if m_costs:
+                    entry["mcp"].append(float(median(m_costs)))
+        return JSONResponse(out, headers=_NO_STORE)
+
     @app.get("/api/models")
     def list_models() -> JSONResponse:
         from token_compare.inference_client import discover_models

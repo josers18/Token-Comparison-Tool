@@ -30,6 +30,7 @@ def _stub_db(monkeypatch):
     monkeypatch.setattr(db, "get_sf_token", _none)
     monkeypatch.setattr(db, "delete_sf_token", _noop)
     monkeypatch.setattr(db, "list_reports", _empty_list)
+    monkeypatch.setattr(db, "list_recent_reports", _empty_list)
     monkeypatch.setattr(db, "get_report", _none)
     monkeypatch.setattr(db, "create_report", _create_report)
     monkeypatch.setattr(db, "finalize_report", _noop)
@@ -974,4 +975,69 @@ def test_compare_endpoint_404_on_missing(client, monkeypatch):
 
 def test_compare_endpoint_400_on_same_id(client):
     r = client.get("/api/reports/compare?a=same&b=same")
+    assert r.status_code == 400
+
+
+def test_scenarios_sparkline_returns_per_scenario_history(client, monkeypatch):
+    from token_compare import db
+
+    async def _list_recent_reports(limit=20):
+        return [
+            {"id": "rpt_1", "started_at": "2026-05-09T00:00:00+00:00",
+             "payload_json": {
+                "model": "sonnet", "models": ["sonnet"],
+                "started_at": "x", "finished_at": "y", "operator": "me",
+                "org_name": "o", "tool_commit": "abc", "runs_per_path": 1,
+                "scenarios": [
+                    {"scenario_id": "s01",
+                     "native_runs": [{"path":"native","input_tokens":1,"output_tokens":1,
+                                       "cache_read_input_tokens":0,"total_cost_usd":0.62,
+                                       "num_turns":1,"duration_ms":100,"tool_calls":[],
+                                       "succeeded":True,"raw_json":{}}],
+                     "mcp_runs":    [{"path":"mcp","input_tokens":1,"output_tokens":1,
+                                       "cache_read_input_tokens":0,"total_cost_usd":0.93,
+                                       "num_turns":1,"duration_ms":100,"tool_calls":[],
+                                       "succeeded":True,"raw_json":{}}]},
+                ]}},
+            {"id": "rpt_2", "started_at": "2026-05-08T00:00:00+00:00",
+             "payload_json": {
+                "model": "sonnet", "models": ["sonnet"],
+                "started_at": "x", "finished_at": "y", "operator": "me",
+                "org_name": "o", "tool_commit": "abc", "runs_per_path": 1,
+                "scenarios": [
+                    {"scenario_id": "s01",
+                     "native_runs": [{"path":"native","input_tokens":1,"output_tokens":1,
+                                       "cache_read_input_tokens":0,"total_cost_usd":0.65,
+                                       "num_turns":1,"duration_ms":100,"tool_calls":[],
+                                       "succeeded":True,"raw_json":{}}],
+                     "mcp_runs":    [{"path":"mcp","input_tokens":1,"output_tokens":1,
+                                       "cache_read_input_tokens":0,"total_cost_usd":0.91,
+                                       "num_turns":1,"duration_ms":100,"tool_calls":[],
+                                       "succeeded":True,"raw_json":{}}]},
+                ]}},
+        ]
+
+    monkeypatch.setattr(db, "list_recent_reports", _list_recent_reports)
+    r = client.get("/api/scenarios/sparkline?ids=s01,s02")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "s01" in body
+    # Most-recent first.
+    assert body["s01"]["native"] == [0.62, 0.65]
+    assert body["s01"]["mcp"] == [0.93, 0.91]
+    # s02 not present in any report — endpoint omits the key.
+    assert "s02" not in body
+
+
+def test_scenarios_sparkline_empty_when_no_reports(client, monkeypatch):
+    from token_compare import db
+    async def _list_recent_reports(limit=20): return []
+    monkeypatch.setattr(db, "list_recent_reports", _list_recent_reports)
+    r = client.get("/api/scenarios/sparkline?ids=s01")
+    assert r.status_code == 200
+    assert r.json() == {}
+
+
+def test_scenarios_sparkline_400_on_missing_ids(client):
+    r = client.get("/api/scenarios/sparkline")
     assert r.status_code == 400
