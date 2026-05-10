@@ -358,3 +358,81 @@
   border: 1px solid var(--hair);
   border-radius: var(--r-sm);
 }
+
+/* §4 cont — Summary stat cards + framework grid ─── */
+.kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin: 16px 0;
+}
+.kpi {
+  padding: 14px 16px;
+  background: var(--surface-card);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-md);
+  backdrop-filter: blur(8px);
+}
+.kpi-label {
+  font: 500 10px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-tertiary);
+}
+.kpi-value {
+  font-family: var(--mono);
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+  font-size: 22px;
+  font-weight: 600;
+  margin-top: 6px;
+  color: var(--ink-primary);
+}
+
+.projection-panel {
+  padding: 18px 20px;
+  background: var(--surface-card);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-md);
+  backdrop-filter: blur(8px);
+  margin: 16px 0;
+}
+
+.framework-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 16px 0;
+}
+.framework-cell {
+  padding: 14px 16px;
+  background: var(--surface-card);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-md);
+}
+.framework-cell.native { border-left: 3px solid var(--accent-native); }
+.framework-cell.mcp    { border-left: 3px solid var(--accent-mcp); }
+.framework-cell h3 {
+  font: 500 11px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-tertiary);
+  margin-bottom: 8px;
+}
+.framework-cell.native h3 { color: var(--accent-native); }
+.framework-cell.mcp h3    { color: var(--accent-mcp); }
+.framework-cell ul {
+  margin-left: 18px;
+  font-size: 13px;
+  color: var(--ink-secondary);
+}
+
+.headline {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 28px;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  color: var(--ink-primary);
+  margin: 24px 0 16px;
+}
