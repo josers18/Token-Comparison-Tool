@@ -436,3 +436,134 @@
   color: var(--ink-primary);
   margin: 24px 0 16px;
 }
+
+/* §5 Compare ─────────────────────────────────── */
+.compare-pickers {
+  display: flex; gap: 16px; flex-wrap: wrap;
+  align-items: end; margin-bottom: 16px;
+}
+.compare-pickers label {
+  display: flex; flex-direction: column; gap: 4px;
+  font: 500 10px var(--mono);
+  text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--ink-tertiary);
+}
+.compare-pickers select {
+  padding: 6px 8px; min-width: 280px;
+  background: var(--surface-glass);
+  color: var(--ink-primary);
+  border: 1px solid var(--hair-2);
+  border-radius: var(--r-sm);
+  font: inherit;
+}
+.compare-meta {
+  padding: 14px 18px;
+  background: var(--surface-card);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-md);
+  margin: 16px 0;
+  backdrop-filter: blur(8px);
+}
+.compare-meta-grid {
+  display: grid; grid-template-columns: 120px 1fr 1fr;
+  gap: 6px 16px;
+  font: 500 12px var(--mono);
+  color: var(--ink-secondary);
+}
+.compare-meta-label { color: var(--ink-tertiary); }
+.compare-section { margin: 18px 0; }
+.compare-section h3 {
+  font: 500 13px var(--sans);
+  margin: 8px 0;
+  color: var(--ink-primary);
+}
+.compare-card {
+  padding: 14px 18px; margin: 8px 0;
+  background: var(--surface-card);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-md);
+  backdrop-filter: blur(8px);
+}
+.compare-card.regressed {
+  border-color: var(--accent-error);
+  border-left: 3px solid var(--accent-error);
+}
+.compare-card h4 {
+  margin: 0 0 8px;
+  font: 600 13px var(--mono);
+  color: var(--ink-primary);
+}
+.compare-metric {
+  display: grid; grid-template-columns: 80px 1fr;
+  font: 12px var(--mono); padding: 2px 0;
+}
+.compare-metric-label { color: var(--ink-tertiary); }
+.compare-delta.up   { color: var(--accent-error); }
+.compare-delta.down { color: var(--accent-native); }
+.compare-delta.flat { color: var(--ink-tertiary); }
+
+/* §6 Share ──────────────────────────────────── */
+.share-banner {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: var(--ink-primary);
+  color: var(--surface-canvas);
+  font: 500 12px var(--mono);
+  padding: 8px 16px; text-align: center;
+  z-index: 100;
+  letter-spacing: 0.04em;
+}
+.share-view main { padding-bottom: 60px; }
+
+/* Modal styles for share modal — applies on the issuing side. */
+.modal[hidden] { display: none; }
+.modal {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+}
+.modal-backdrop {
+  position: absolute; inset: 0;
+  background: rgba(11, 15, 31, 0.4);
+  backdrop-filter: blur(4px);
+}
+.modal-card {
+  position: relative; z-index: 1;
+  background: var(--surface-card);
+  border: 1px solid var(--hair-2);
+  border-radius: var(--r-lg);
+  padding: 22px 26px;
+  min-width: 480px; max-width: 600px;
+  box-shadow: var(--shadow-modal);
+  backdrop-filter: blur(20px);
+}
+.modal-card input[type="text"] {
+  width: 100%; padding: 8px 10px;
+  font: 12px var(--mono);
+  border: 1px solid var(--hair-2);
+  border-radius: var(--r-sm);
+  margin: 12px 0;
+  background: var(--surface-glass);
+  color: var(--ink-primary);
+}
+.modal-row {
+  display: flex; justify-content: space-between;
+  align-items: center; gap: 12px;
+}
+.modal-actions { display: flex; gap: 8px; }
+
+/* §7 Admin ──────────────────────────────────── */
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font: 500 12px var(--mono);
+}
+.admin-table th, .admin-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--hair);
+  text-align: left;
+}
+.admin-table th {
+  color: var(--ink-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10px;
+}
