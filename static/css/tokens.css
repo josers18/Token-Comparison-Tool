@@ -38,6 +38,13 @@
   --duration-slow: 460ms;
 }
 
+/* ─── LEGACY ALIASES ──────────────────────────────────
+ * Map the original token names from styles.css (now legacy.css) onto
+ * the new theme tokens so the existing 150+ component classes auto-
+ * reskin in light/dark and pick up the active palette. Defined per
+ * theme below so they recompute on theme switch.
+ * ──────────────────────────────────────────────────── */
+
 /* ─── LIGHT ───────────────────────────────────────── */
 :root[data-theme="light"] {
   --surface-canvas: #F7F7FB;
@@ -57,6 +64,19 @@
   --shadow-modal:       0 24px 60px rgba(0,0,0,0.18);
 
   --glow-opacity: 0.18;
+
+  /* Legacy aliases — surfaces */
+  --paper-50:  #FBF9F3;
+  --paper-100: #F7F4ED;
+  --paper-200: #F1EDE3;
+  --paper-300: #E8E3D6;
+  --paper-card: #FFFFFF;
+
+  /* Legacy aliases — text */
+  --ink:        var(--ink-primary);
+  --ink-dim:    var(--ink-secondary);
+  --ink-mute:   var(--ink-tertiary);
+  --ink-faint:  rgba(11, 15, 31, 0.40);
 }
 
 /* ─── DARK ────────────────────────────────────────── */
@@ -78,6 +98,19 @@
   --shadow-modal:       0 24px 60px rgba(0,0,0,0.5);
 
   --glow-opacity: 0.30;
+
+  /* Legacy aliases — surfaces (dark) */
+  --paper-50:  #0B0F1F;
+  --paper-100: #11162A;
+  --paper-200: #181E36;
+  --paper-300: #232A45;
+  --paper-card: rgba(255, 255, 255, 0.04);
+
+  /* Legacy aliases — text (dark) */
+  --ink:        var(--ink-primary);
+  --ink-dim:    var(--ink-secondary);
+  --ink-mute:   var(--ink-tertiary);
+  --ink-faint:  rgba(248, 248, 252, 0.30);
 }
 
 /* ─── PALETTE: TEAL + CORAL ───────────────────────── */
@@ -182,4 +215,28 @@
   --accent-mcp-glow:     rgba(234, 88, 12, 0.30);
   --accent-warn:         #FCD34D;
   --accent-error:        #FCA5A5;
+}
+
+/* ─── LEGACY ACCENT ALIASES (palette-driven) ───────────
+ * Old code used --signal* (Native) and --counter* (MCP).
+ * These map onto the active palette's accents so legacy.css
+ * components recolor correctly when the puck changes palettes.
+ * ──────────────────────────────────────────────────── */
+:root {
+  --signal:        var(--accent-native);
+  --signal-vivid:  var(--accent-native-2);
+  --signal-deep:   var(--accent-native);
+  --signal-tint:   var(--accent-native-fade);
+  --signal-edge:   var(--accent-native-glow);
+
+  --counter:       var(--accent-mcp);
+  --counter-vivid: var(--accent-mcp-2);
+  --counter-deep:  var(--accent-mcp);
+  --counter-tint:  var(--accent-mcp-fade);
+  --counter-edge:  var(--accent-mcp-glow);
+
+  --amber:         var(--accent-warn);
+  --amber-edge:    var(--accent-warn);
+  --crimson:       var(--accent-error);
+  --crimson-edge:  var(--accent-error);
 }

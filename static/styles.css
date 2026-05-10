@@ -5,6 +5,7 @@
  * avoid touching <link rel="stylesheet"> in every static page.
  */
 @import url("css/tokens.css");
+@import url("css/legacy.css");
 @import url("css/base.css");
 @import url("css/motion.css");
 @import url("css/views.css");
