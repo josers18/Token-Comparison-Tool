@@ -3,6 +3,30 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script>
+    /* Pre-paint theme: read localStorage, apply data-theme + data-palette
+       before first paint to prevent FOUC. Mirrors the logic in theme.js;
+       keep them in sync. */
+    (function () {
+      try {
+        var raw = localStorage.getItem("tokenmeter_theme");
+        var t = raw ? JSON.parse(raw) : null;
+        var validPals = ["teal-coral","emerald-violet","cyan-amber","forest-terracotta"];
+        if (!t || validPals.indexOf(t.palette) < 0) {
+          t = { mode: "light", palette: "teal-coral", matchSystem: true };
+        }
+        var mode = t.mode;
+        if (t.matchSystem) {
+          mode = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        document.documentElement.dataset.theme = (mode === "dark" ? "dark" : "light");
+        document.documentElement.dataset.palette = t.palette;
+      } catch (e) {
+        document.documentElement.dataset.theme = "light";
+        document.documentElement.dataset.palette = "teal-coral";
+      }
+    })();
+  </script>
   <title>Token Comparison Tool — Salesforce MCP vs Native LLM</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
