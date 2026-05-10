@@ -15,3 +15,4 @@ itsdangerous>=2.2
 # can find the module on the dyno's PYTHONPATH. pyproject.toml's
 # [tool.setuptools.packages.find] handles the src/ layout.
 -e .
+Pillow>=10.0
