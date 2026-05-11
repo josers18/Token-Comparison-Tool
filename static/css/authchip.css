@@ -1,0 +1,168 @@
+/* tokenmeter — authchip.css
+ *
+ * Salesforce login/logout chip in the header. Mirrors the theme puck:
+ * pill trigger + dropdown with action button. Status dot is palette-tinted
+ * (green = connected, dim = signed out, amber = checking).
+ */
+
+.ac-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--surface-glass);
+  border: 1px solid var(--hair-2);
+  border-radius: var(--r-pill);
+  font: 500 11px var(--mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-secondary);
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: background var(--duration-fast) var(--motion-snap);
+}
+.ac-trigger:hover { background: var(--surface-card); }
+
+.ac-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-tertiary);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.05);
+  flex-shrink: 0;
+}
+.ac-trigger[data-state="connected"] {
+  color: var(--accent-native);
+  border-color: var(--accent-native-fade);
+}
+.ac-trigger[data-state="connected"] .ac-dot {
+  background: var(--accent-native);
+  box-shadow: 0 0 0 3px var(--accent-native-glow);
+  animation: ac-pulse 2.4s ease-in-out infinite;
+}
+.ac-trigger[data-state="checking"] .ac-dot {
+  background: var(--accent-warn);
+  animation: ac-blink 1s linear infinite;
+}
+.ac-trigger[data-state="signed-out"] .ac-dot {
+  background: var(--ink-tertiary);
+}
+
+@keyframes ac-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px var(--accent-native-glow); }
+  50%      { box-shadow: 0 0 0 5px var(--accent-native-glow); }
+}
+@keyframes ac-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ac-trigger .ac-dot { animation: none !important; }
+}
+
+.ac-chev {
+  font-size: 9px;
+  opacity: 0.5;
+  transition: transform var(--duration-fast) var(--motion-snap);
+}
+.ac-trigger[aria-expanded="true"] .ac-chev { transform: rotate(180deg); }
+
+.ac-dropdown {
+  position: absolute;
+  right: 32px;
+  top: 64px;
+  width: 320px;
+  background: var(--surface-card);
+  border: 1px solid var(--hair-2);
+  border-radius: var(--r-lg);
+  padding: 18px;
+  box-shadow: var(--shadow-modal);
+  backdrop-filter: blur(20px);
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ac-dropdown[hidden] { display: none; }
+
+.ac-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--hair);
+}
+.ac-status-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--ink-tertiary);
+  flex-shrink: 0;
+}
+.ac-status-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.ac-status-label {
+  font: 600 13px var(--sans);
+  color: var(--ink-primary);
+}
+.ac-status-detail {
+  font: 500 11px var(--mono);
+  color: var(--ink-tertiary);
+  letter-spacing: 0.02em;
+  text-transform: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ac-dropdown[data-state="connected"] .ac-status-dot {
+  background: var(--accent-native);
+  box-shadow: 0 0 0 3px var(--accent-native-glow);
+}
+.ac-dropdown[data-state="signed-out"] .ac-status-dot {
+  background: var(--ink-tertiary);
+}
+
+.ac-action {
+  width: 100%;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: var(--r-md);
+  font: 500 13px var(--sans);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: transform var(--duration-fast) var(--motion-snap),
+              box-shadow var(--duration-fast) var(--motion-snap);
+}
+.ac-action.primary {
+  background: linear-gradient(135deg, var(--accent-native), var(--accent-native-2));
+  color: #FFFFFF;
+  box-shadow: 0 0 0 3px var(--accent-native-glow);
+}
+.ac-action.primary:hover { transform: translateY(-1px); }
+.ac-action.secondary {
+  background: var(--surface-glass);
+  border: 1px solid var(--hair-2);
+  color: var(--ink-primary);
+}
+.ac-action.secondary:hover { background: var(--surface-card); }
+.ac-action:disabled { opacity: 0.55; cursor: wait; transform: none; }
+
+.ac-help {
+  font: 500 11px var(--mono);
+  color: var(--ink-tertiary);
+  line-height: 1.55;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+.ac-help code {
+  background: var(--surface-glass);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 10px;
+}

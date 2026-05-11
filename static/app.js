@@ -111,6 +111,22 @@ async function init() {
     renderLanding();
   }
 
+  // React to login/logout triggered from the header auth chip. If the
+  // user signs in while we're showing the login splash, drop them on
+  // the home chooser. If they sign out from anywhere, snap back to the
+  // splash so the SPA's session-gated state matches reality.
+  let lastAuthLoggedIn = loggedIn;
+  window.addEventListener("tokenmeter:auth-change", (ev) => {
+    const now = !!(ev.detail && ev.detail.loggedIn);
+    if (now === lastAuthLoggedIn) return;
+    lastAuthLoggedIn = now;
+    if (now) {
+      if (state.active === "login") renderLanding();
+    } else {
+      renderLogin();
+    }
+  });
+
   // Wire the splash's login button. Reuses the same /api/sf/login flow
   // the old setup-view "Connect Salesforce" button used.
   const loginCta = $("login-cta-btn");
