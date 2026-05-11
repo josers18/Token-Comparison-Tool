@@ -24,6 +24,9 @@ reports/commands.log
 node_modules/
 .superpowers/
 
+# Internal design docs — kept locally for context but not published to git
+docs/superpowers/
+
 # IDE
 .vscode/
 .idea/

@@ -352,11 +352,10 @@ under `/api/share/<token>/...` so the SPA reuses one set of fetchers.
 │   ├── compare.js             ← /compare page controller
 │   ├── history.js             ← /history page controller
 │   └── chart.min.js
+├── CHANGELOG.md               ← tier-by-tier release notes
 ├── docs/
-│   ├── screenshots/           ← README screenshots (Tier E refresh pending)
-│   └── superpowers/
-│       ├── specs/             ← design docs: local-tool, heroku-port, B/C/D/E
-│       └── plans/             ← implementation plans: local-tool, B/C/D/E
+│   └── screenshots/           ← README screenshots (Spatial Glass)
+│   # docs/superpowers/        ← internal specs+plans (gitignored)
 ├── reports/                   ← legacy on-disk reports (pre-Heroku); .gitignored
 └── tests/                     ← pytest suite (190 passing, 5 skipped)
 ```
@@ -507,21 +506,18 @@ scenario sparkline endpoint (Tier E), Pillow OG renderer + endpoint (Tier E).
   construction goes through `document.createElement` + `textContent` /
   attribute setters to avoid XSS even in trace output.
 
-## Design spec & implementation plans
+## Release history
 
-The repo treats specs and plans as durable artifacts. Each tier has a
-spec (the design doc) and a plan (task-by-task implementation).
-Historical tiers are kept verbatim for context — don't try to
-"refresh" them.
+See [`CHANGELOG.md`](CHANGELOG.md) for tier-by-tier release notes
+covering the Original local tool, the Heroku port, and Tiers A–E.
+Each release ships behind a `tier-{x}-v1` git tag — `git log
+tier-d-v1..tier-e-v1 --oneline` reproduces the commit-level diff
+between any two releases.
 
-| Tier | Scope | Spec | Plan |
-|---|---|---|---|
-| Original | Local-tool RFC | [`specs/2026-05-04-token-comparison-tool-design.md`](docs/superpowers/specs/2026-05-04-token-comparison-tool-design.md) | [`plans/2026-05-04-token-comparison-tool.md`](docs/superpowers/plans/2026-05-04-token-comparison-tool.md) |
-| Heroku port | OAuth flow, Postgres-backed sessions/reports | [`specs/2026-05-07-heroku-port-design.md`](docs/superpowers/specs/2026-05-07-heroku-port-design.md) | [`plans/2026-05-07-heroku-port.md`](docs/superpowers/plans/2026-05-07-heroku-port.md) |
-| Tier B | Multi-model cube schema, projection panel | [`specs/2026-05-08-tier-b-design.md`](docs/superpowers/specs/2026-05-08-tier-b-design.md) | [`plans/2026-05-08-tier-b.md`](docs/superpowers/plans/2026-05-08-tier-b.md) |
-| Tier C | Reports analytics + history walker + per-turn diff | [`specs/2026-05-08-tier-c-design.md`](docs/superpowers/specs/2026-05-08-tier-c-design.md) | [`plans/2026-05-08-tier-c.md`](docs/superpowers/plans/2026-05-08-tier-c.md) |
-| Tier D | Share links + cube-vs-cube `/compare` | [`specs/2026-05-09-tier-d-design.md`](docs/superpowers/specs/2026-05-09-tier-d-design.md) | [`plans/2026-05-09-tier-d.md`](docs/superpowers/plans/2026-05-09-tier-d.md) |
-| Tier E | Spatial Glass theme system + OG cards + visual refresh | [`specs/2026-05-10-ui-overhaul-design.md`](docs/superpowers/specs/2026-05-10-ui-overhaul-design.md) | [`plans/2026-05-10-tier-e.md`](docs/superpowers/plans/2026-05-10-tier-e.md) |
+> Internal design specs and implementation plans live in
+> `docs/superpowers/` (gitignored). They're durable working artifacts
+> for the team — not user-facing docs. The CHANGELOG is the public
+> record of what shipped and when.
 
 ## License
 
