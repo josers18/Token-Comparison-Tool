@@ -45,10 +45,10 @@ html, body {
   display: flex;
   align-items: center;
   gap: 12px;
-  font-family: var(--serif);
-  font-weight: 500;
-  font-size: 21px;
-  letter-spacing: -0.02em;
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 18px;
+  letter-spacing: -0.015em;
   color: var(--ink-primary);
   background: transparent;
   border: 0;
@@ -64,7 +64,7 @@ html, body {
   background: linear-gradient(135deg, var(--accent-native), var(--accent-native-2));
   box-shadow: 0 0 0 4px var(--accent-native-glow);
 }
-.brand .wordmark { font-style: italic; }
+.brand .wordmark { font-style: normal; }
 .brand .sub {
   font-family: var(--mono);
   font-size: 10px;
