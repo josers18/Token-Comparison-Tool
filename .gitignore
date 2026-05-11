@@ -20,6 +20,8 @@ reports/commands.log
 *.jpeg
 !docs/screenshots/*.png
 !docs/screenshots/*.jpg
+!static/screenshots/*.png
+!static/screenshots/*.jpg
 .playwright-mcp/
 node_modules/
 .superpowers/

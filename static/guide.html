@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script>
+    (function () {
+      try {
+        var raw = localStorage.getItem("tokenmeter_theme");
+        var t = raw ? JSON.parse(raw) : null;
+        var validPals = ["teal-coral","emerald-violet","cyan-amber","forest-terracotta"];
+        if (!t || validPals.indexOf(t.palette) < 0) {
+          t = { mode: "light", palette: "teal-coral", matchSystem: true };
+        }
+        var mode = t.mode;
+        if (t.matchSystem) {
+          mode = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        document.documentElement.dataset.theme = (mode === "dark" ? "dark" : "light");
+        document.documentElement.dataset.palette = t.palette;
+      } catch (e) {
+        document.documentElement.dataset.theme = "light";
+        document.documentElement.dataset.palette = "teal-coral";
+      }
+    })();
+  </script>
+  <title>User guide — Token Comparison Tool</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=Inter+Tight:wght@100..900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <a class="brand" href="/" aria-label="Back to home">
+      <span class="dot"></span>
+      <span class="wordmark">Token Comparison Tool</span>
+      <span class="sub">User guide</span>
+    </a>
+    <nav class="header-nav" aria-label="Main">
+      <a class="header-link" href="/">Home</a>
+      <a class="header-link active" href="/guide">User guide</a>
+      <a class="header-link" href="/glossary">Glossary</a>
+      <div id="auth-chip-mount" class="auth-chip-mount"></div>
+      <div id="theme-puck-mount" class="theme-puck-mount"></div>
+    </nav>
+  </header>
+
+  <main class="container guide-container">
+    <a class="back-link" href="/">← Back to home</a>
+    <h1 class="guide-title">User guide</h1>
+    <p class="guide-subtitle">A walkthrough of every screen in the tool, with screenshots of each surface and what to do on it.</p>
+
+    <nav class="guide-toc" aria-label="Guide contents">
+      <a href="#getting-started">1. Getting started</a>
+      <a href="#catalog">2. The catalog</a>
+      <a href="#running">3. Running a benchmark</a>
+      <a href="#scenario">4. Scenario detail</a>
+      <a href="#summary">5. Summary deck</a>
+      <a href="#projection">6. Cost-at-scale projection</a>
+      <a href="#freeform">7. Free-format scenario</a>
+      <a href="#history">8. History &amp; reports</a>
+      <a href="#compare">9. Comparing two reports</a>
+      <a href="#sharing">10. Sharing a report</a>
+      <a href="#themes">11. Themes &amp; preferences</a>
+    </nav>
+
+    <section class="guide-section" id="getting-started">
+      <h2>1. Getting started</h2>
+      <p>The first time you visit the app, you'll see a sign-in splash. The whole tool is gated on a Salesforce session — preflight verifies the dyno is healthy, but you also need to authenticate so the runner can call your org.</p>
+      <ol>
+        <li>Click <strong>Connect Salesforce →</strong> on the splash, or open the auth chip in the header (the pill that says "Sign in").</li>
+        <li>You'll be redirected to your Salesforce org's login page. Approve the OAuth scopes (<code>mcp_api</code>, <code>cdp_api</code>, <code>refresh_token</code>).</li>
+        <li>The popup closes and the header chip flips to <strong>● Connected</strong>. The home chooser appears.</li>
+      </ol>
+      <p class="guide-tip"><strong>Tip:</strong> the auth chip is everywhere. Sign out from any page and the SPA snaps back to the splash; sign in and you land back on the home chooser.</p>
+    </section>
+
+    <section class="guide-section" id="catalog">
+      <h2>2. The catalog</h2>
+      <p>From the home chooser, click <strong>Run benchmark</strong>. The catalog shows six scenarios as a card grid — each card is a real Salesforce task ranging from a simple SOQL query (s01) to a multi-DMO Customer 360 join (s06).</p>
+      <figure class="guide-figure">
+        <img src="/screenshots/catalog.png" alt="Token Comparison Tool catalog page" loading="lazy">
+        <figcaption>Catalog with scenario cards. Each card shows category dot, id + title, difficulty pill, and a sparkline of recent Native vs MCP cost trends.</figcaption>
+      </figure>
+      <ul>
+        <li><strong>Each card</strong> shows the scenario's category dot (core-crm = teal, data-360 = coral), id and title, difficulty pill, and a tiny sparkline of recent Native vs MCP cost trends.</li>
+        <li><strong>Tri-state checkbox.</strong> Top-left "Select all" toggles every card; clicking individual cards' checkboxes adds/removes them from the run set.</li>
+        <li><strong>Sticky controls panel</strong> at the bottom: pick the number of runs per path (1/3/5), one or more models (haiku / sonnet / opus), and the max-turns cap.</li>
+        <li>Click <strong>Run benchmark →</strong> when ready.</li>
+      </ul>
+    </section>
+
+    <section class="guide-section" id="running">
+      <h2>3. Running a benchmark</h2>
+      <p>Once you click Run, the SPA opens a Server-Sent Events stream and the stepper appears (<code>s01 / s02 / … / Summary</code>). Each scenario runs both paths against every selected model, in random path order, and the UI updates live as runs complete.</p>
+      <ul>
+        <li><strong>Stepper chips</strong> turn solid as their scenario completes. Click any chip to jump into that scenario's detail mid-run.</li>
+        <li><strong>Polling fallback.</strong> If SSE drops (corporate proxy, sleeping browser), the SPA falls back to polling <code>/api/run/status</code> with no visible jank.</li>
+        <li><strong>Failures don't stop the run.</strong> An auth error, max-turns exhaustion, or rate-limit retry shows up in the scenario's outcome bar; the rest of the catalog continues.</li>
+      </ul>
+    </section>
+
+    <section class="guide-section" id="scenario">
+      <h2>4. Scenario detail</h2>
+      <p>Click any scenario chip to drill in. This is where most of the analysis happens.</p>
+      <figure class="guide-figure">
+        <img src="/screenshots/scenario-detail.png" alt="Scenario detail view with cinematic verdict hero, dual native/MCP panels, comparison chart, and turn-by-turn trace" loading="lazy">
+        <figcaption>Scenario detail. Cinematic verdict hero on top, dual Native / MCP panels below, comparison chart, and turn-by-turn trace.</figcaption>
+      </figure>
+      <ul>
+        <li><strong>Verdict hero.</strong> Editorial Fraunces headline ("Native is <em>2.3×</em> cheaper here.") with two callouts: dollars saved per 10,000 runs, and the input-token delta between the paths.</li>
+        <li><strong>Sparkline KPI cards.</strong> Cost trend, cache hit, success rate, p95 wall-clock — each plotted as a recent Native (theme-native color) vs MCP (theme-mcp color) trend, when there are ≥2 reports to chart.</li>
+        <li><strong>Native / MCP panels.</strong> Side-by-side glass cards: input-tokens hero number, turns, cost per run, cache hit, wall-clock, and the list of tools each path actually called.</li>
+        <li><strong>Per-run breakdown.</strong> Every individual run that contributed to the medians, with succeeded/failed status. Click a row to expand the full input → tool calls → output replay.</li>
+        <li><strong>Comparison chart.</strong> Custom horizontal bar chart with Δ percentages (Input tokens, Output tokens, Cost, Turns).</li>
+        <li><strong>Why these numbers differ.</strong> Auto-generated editorial paragraph that explains the cost gap (e.g., "MCP loaded 16 tools at startup → 2,041 extra cache-create tokens in Native but two extra system tokens per turn for MCP").</li>
+        <li><strong>Turn-by-turn trace.</strong> Every turn of the first successful run of each path, side-by-side. Cache writes on turn 1 are usually tool-definition loads.</li>
+      </ul>
+    </section>
+
+    <section class="guide-section" id="summary">
+      <h2>5. Summary deck</h2>
+      <p>The Summary chip at the end of the stepper aggregates every scenario into a one-page editorial recap.</p>
+      <figure class="guide-figure">
+        <img src="/screenshots/summary.png" alt="Summary deck with cinematic Fraunces headline, glass cost-totals cards, cost-at-scale slider, per-scenario gradient bars, and Native-wins / MCP-wins framework grid" loading="lazy">
+        <figcaption>Summary deck. Headline → cost totals → cost-at-scale slider → per-scenario bars → Native/MCP framework → run outcomes → cache effectiveness → caveats.</figcaption>
+      </figure>
+      <ul>
+        <li><strong>Headline.</strong> Auto-generated executive sentence ("Across 6 scenarios, native integrations cost ~47% less per task than MCP — 1.9× cheaper on average").</li>
+        <li><strong>Cost totals.</strong> Three glass cards (Total cost, Total input tokens, Success rate) with palette accent stripes; Native row in palette-native color, MCP row in palette-mcp color.</li>
+        <li><strong>Cost at scale.</strong> Interactive log-scale slider (10 → 1,000,000 runs/month). See section 6.</li>
+        <li><strong>Per-scenario bars.</strong> One row per scenario with side-by-side gradient bars and the cost ratio (Native vs MCP, "low conf." flag if only one run).</li>
+        <li><strong>When Native wins / When MCP wins.</strong> Auto-classified framework grid showing which scenario shapes favor which path.</li>
+        <li><strong>Run outcomes.</strong> Stacked bars showing succeeded vs max-turns vs auth-error vs no-tool-calls, per path.</li>
+        <li><strong>Cache effectiveness.</strong> Two tiles with the cache-hit fraction per path. 0% means every input token was billed fresh.</li>
+        <li><strong>Caveats.</strong> Auto-flagged warnings (single-run measurements, untested model, etc) with amber <code>!</code> markers.</li>
+      </ul>
+    </section>
+
+    <section class="guide-section" id="projection">
+      <h2>6. Cost-at-scale projection</h2>
+      <p>Inside the summary, the projection panel lets you forecast monthly spend at any volume — useful for annual-budget conversations.</p>
+      <ul>
+        <li><strong>Volume slider</strong>, log-scale 10 → 1M monthly runs. Drag to any value; the API recomputes on rAF + 300ms debounce.</li>
+        <li><strong>Period.</strong> Daily / Monthly / Annual segmented control. Defaults to Monthly.</li>
+        <li><strong>Growth %.</strong> Optional month-over-month growth rate. Compounds across the 12-month projection curve.</li>
+        <li><strong>Model.</strong> Picker if multiple models were run. Otherwise hidden.</li>
+        <li><strong>Three KPIs:</strong> Native total, MCP total, Delta (with × cheaper).</li>
+        <li><strong>Breakeven thresholds.</strong> Three editable dollar targets ($1k / $10k / $100k by default). The table shows the volume at which each path crosses each threshold per scenario.</li>
+        <li><strong>12-month curve.</strong> Native + MCP cumulative spend lines. The two lines show how the gap compounds over time.</li>
+      </ul>
+    </section>
+
+    <section class="guide-section" id="freeform">
+      <h2>7. Free-format scenario</h2>
+      <p>Back on the home chooser, <strong>Free-format scenario</strong> opens a textarea so you can run a one-off prompt that isn't in the catalog yet.</p>
+      <ul>
+        <li>Pick model, runs per path, and max turns independently.</li>
+        <li>Click <strong>Run free format →</strong>. The scenario gets its own indigo-dot tab in the stepper next to the catalog scenarios — it's distinguishable because catalog scenarios have a teal dot.</li>
+        <li>The same scenario detail UI works for free-format runs. Output isn't saved as a YAML, but the report row in Postgres carries the prompt verbatim so you can re-find it on the History page.</li>
+      </ul>
+    </section>
+
+    <section class="guide-section" id="history">
+      <h2>8. History &amp; reports</h2>
+      <p>The History link in the header opens a per-scenario, per-model trend walker — useful for "did our latest infra change help or hurt?". The Reports table on the home chooser's "View previous runs" card is the operational counterpart: every saved report sortable by every column.</p>
+      <ul>
+        <li><strong>Reports table.</strong> Sort by date / model / scenario count / cost / ratio / success / cache hit. Filter by kind (catalog / freeform / mixed) or by model. Search by report id, operator, or org.</li>
+        <li><strong>Click a row</strong> to load the report into the same scenario / summary views as a fresh benchmark.</li>
+        <li><strong>Actions menu</strong> on each row: Open in app, Download Markdown, Download PDF, Compare to another row.</li>
+        <li><strong>History page</strong> (<code>/history</code>): 2×2 chart grid (cost / cache / success / p95) per scenario, per model, with change markers when a config tweak shifts the curve.</li>
+      </ul>
+    </section>
+
+    <section class="guide-section" id="compare">
+      <h2>9. Comparing two reports</h2>
+      <p>The Compare link (or the per-row Compare button on the reports table) opens a side-by-side diff page.</p>
+      <ol>
+        <li>Pick Report A and Report B from the dropdowns.</li>
+        <li>Pick a model that both reports ran (the dropdown only shows shared models).</li>
+        <li>Click <strong>Run comparison →</strong>.</li>
+      </ol>
+      <p>The result groups scenarios into <strong>Regressions</strong> (cost up &gt;10% or success down &gt;5pp), <strong>Other scenarios</strong> (no significant change), and <strong>Scope changes</strong> (added or removed). Each scenario card shows the Native cost, MCP cost, success rate, cost multiplier, and p95 latency for both reports with the delta.</p>
+    </section>
+
+    <section class="guide-section" id="sharing">
+      <h2>10. Sharing a report</h2>
+      <p>From any scenario detail or summary view, click <strong>Share link</strong>.</p>
+      <ul>
+        <li>The modal shows a copyable URL plus the expiry date (default 30 days).</li>
+        <li>Click <strong>Copy</strong> to put it on the clipboard. <strong>Regenerate</strong> mints a fresh token without revoking the old one (rotating <code>SESSION_SECRET</code> would invalidate every outstanding token in one go).</li>
+        <li>Recipients open the URL with no Salesforce login required. They get a read-only view of the same scenario / summary screens.</li>
+        <li><strong>Slack / iMessage / Twitter</strong> unfurl the link as a server-rendered OG card showing the verdict and Native/MCP medians, themed to whichever palette the recipient is on (or the default if they've never visited).</li>
+      </ul>
+    </section>
+
+    <section class="guide-section" id="themes">
+      <h2>11. Themes &amp; preferences</h2>
+      <p>The header carries two preference controls. Both persist across sessions and across pages.</p>
+      <ul>
+        <li><strong>Theme puck.</strong> Pill that shows the active theme (e.g., <em>Teal · Light</em>). Click to open a dropdown with a Light/Dark toggle, four palette tiles (Teal+Coral, Emerald+Violet, Cyan+Amber, Forest+Terracotta), and a "Match system color scheme" checkbox. Eight total looks; pick whichever you like best.</li>
+        <li><strong>Auth chip.</strong> Pill showing your Salesforce status: <em>Sign in</em> when logged out, <em>Connected</em> with a breathing pulse when logged in. Click to sign out without leaving the page.</li>
+        <li><strong>PDF export</strong> uses a print stylesheet that flattens animations and forces light mode regardless of your active theme — keeps reports legible on paper and in slide decks.</li>
+        <li><strong>OG cards</strong> for share links pick up your theme via cookie. Recipients see a card themed to their own preference (or the default if they've never visited).</li>
+      </ul>
+    </section>
+  </main>
+
+  <script src="/chart.min.js"></script>
+  <script src="/js/theme.js?v=1"></script>
+  <script src="/js/themepuck.js?v=1"></script>
+  <script src="/js/authchip.js?v=1"></script>
+</body>
+</html>

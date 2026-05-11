@@ -25,7 +25,9 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright, Page
 
 BASE = "https://token-comparison-tool-cb60c8f1dcc3.herokuapp.com"
-OUT = Path(__file__).resolve().parent.parent / "docs" / "screenshots"
+ROOT = Path(__file__).resolve().parent.parent
+OUT = ROOT / "docs" / "screenshots"
+APP_OUT = ROOT / "static" / "screenshots"  # served by the app for /guide
 VIEWPORT = {"width": 1440, "height": 900}
 
 # Theme to apply for the screenshots — Spatial Glass default.
@@ -176,6 +178,7 @@ def capture_summary(page: Page, report_id: str) -> None:
 
 def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
+    APP_OUT.mkdir(parents=True, exist_ok=True)
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -217,7 +220,13 @@ def main() -> int:
             print(f"WARN: summary capture failed: {e}", file=sys.stderr)
 
         browser.close()
-    print(f"Wrote screenshots to {OUT}")
+
+    # Mirror to static/screenshots/ so the in-app /guide page can serve them.
+    import shutil
+    for png in OUT.glob("*.png"):
+        shutil.copy2(png, APP_OUT / png.name)
+
+    print(f"Wrote screenshots to {OUT} (and mirrored to {APP_OUT})")
     return 0
 
 

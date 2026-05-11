@@ -1527,6 +1527,18 @@ h1{{font-size:24px}}p{{color:#747474}}</style></head><body>
         from fastapi.responses import RedirectResponse
         return RedirectResponse(url="/compare.html", status_code=307)
 
+    @app.get("/glossary")
+    async def glossary_redirect():
+        """Pretty URL for the glossary page."""
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url="/glossary.html", status_code=307)
+
+    @app.get("/guide")
+    async def guide_redirect():
+        """Pretty URL for the user guide page."""
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url="/guide.html", status_code=307)
+
     if config.static_dir and config.static_dir.is_dir():
         app.mount("/", StaticFiles(directory=str(config.static_dir), html=True), name="static")
 
