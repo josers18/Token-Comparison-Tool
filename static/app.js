@@ -1241,7 +1241,7 @@ async function renderSparklines(scenarioId, model) {
     // (e.g. cache hit = 0) and flat-max series stay fully visible.
     const W = 80, H = 30, pad = 1.5;
     const ns = "http://www.w3.org/2000/svg";
-    const mkPath = (vs, color) => {
+    const mkPath = (vs, cssVar) => {
       const usable = H - 2 * pad;
       const d = vs.map((v, j) =>
         `${j === 0 ? "M" : "L"} ${(j / Math.max(vs.length - 1, 1)) * W} ${(H - pad) - (v / max) * usable}`
@@ -1249,12 +1249,15 @@ async function renderSparklines(scenarioId, model) {
       const p = document.createElementNS(ns, "path");
       p.setAttribute("d", d);
       p.setAttribute("fill", "none");
-      p.setAttribute("stroke", color);
       p.setAttribute("stroke-width", "1.5");
+      // SVG presentation attributes don't resolve CSS custom properties — use
+      // the style attribute (full CSS) so the puck switching palettes
+      // recolors the lines instantly without redrawing.
+      p.style.stroke = `var(${cssVar})`;
       return p;
     };
-    svg.appendChild(mkPath(seriesN, "var(--signal-vivid, #1a73e8)"));
-    svg.appendChild(mkPath(seriesM, "var(--counter-vivid, #d32f2f)"));
+    svg.appendChild(mkPath(seriesN, "--accent-native"));
+    svg.appendChild(mkPath(seriesM, "--accent-mcp"));
     const last = r.points[r.points.length - 1];
     const fmt = metrics[i] === "cost"
       ? `$${last.native.toFixed(4)} / $${last.mcp.toFixed(4)}`
@@ -2310,22 +2313,23 @@ function renderProjectionCurve(curve) {
   const x = (m) => pad + (months > 1 ? ((m - 1) / (months - 1)) : 0) * (W - 2 * pad);
   const y = (v) => H - pad - (v / maxY) * (H - 2 * pad);
   const ns = "http://www.w3.org/2000/svg";
-  const mkPath = (key, color, dasharray) => {
+  const mkPath = (key, cssVar, dasharray) => {
     const d = curve.map((c, i) =>
       `${i === 0 ? "M" : "L"} ${x(c.month).toFixed(1)} ${y(c[key]).toFixed(1)}`
     ).join(" ");
     const p = document.createElementNS(ns, "path");
     p.setAttribute("d", d);
     p.setAttribute("fill", "none");
-    p.setAttribute("stroke", color);
     p.setAttribute("stroke-width", "2");
     if (dasharray) p.setAttribute("stroke-dasharray", dasharray);
+    // SVG presentation `stroke=` doesn't resolve CSS variables; use style.
+    p.style.stroke = `var(${cssVar})`;
     return p;
   };
-  // Native = green (signal), MCP = indigo (counter) — same swatches as
-  // the per-scenario cost bars so the panel reads as a continuation.
-  svg.appendChild(mkPath("native_cum", "var(--signal-vivid, #22C55E)"));
-  svg.appendChild(mkPath("mcp_cum", "var(--counter-vivid, #6366F1)"));
+  // Native uses palette-native, MCP uses palette-mcp — switches automatically
+  // when the puck changes palettes (no redraw needed).
+  svg.appendChild(mkPath("native_cum", "--accent-native"));
+  svg.appendChild(mkPath("mcp_cum", "--accent-mcp"));
 }
 
 function bindProjectionInputs() {
