@@ -19,6 +19,14 @@
   font-display: swap;
 }
 
+@font-face {
+  font-family: 'Inter Tight';
+  src: url('/fonts/InterTight.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --serif: 'Fraunces', 'Iowan Old Style', Georgia, serif;
   --sans:  'Inter Tight', 'Geist', -apple-system, system-ui, sans-serif;
