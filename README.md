@@ -355,7 +355,6 @@ under `/api/share/<token>/...` so the SPA reuses one set of fetchers.
 ├── CHANGELOG.md               ← tier-by-tier release notes
 ├── docs/
 │   └── screenshots/           ← README screenshots (Spatial Glass)
-│   # docs/superpowers/        ← internal specs+plans (gitignored)
 ├── reports/                   ← legacy on-disk reports (pre-Heroku); .gitignored
 └── tests/                     ← pytest suite (190 passing, 5 skipped)
 ```
@@ -513,11 +512,6 @@ covering the Original local tool, the Heroku port, and Tiers A–E.
 Each release ships behind a `tier-{x}-v1` git tag — `git log
 tier-d-v1..tier-e-v1 --oneline` reproduces the commit-level diff
 between any two releases.
-
-> Internal design specs and implementation plans live in
-> `docs/superpowers/` (gitignored). They're durable working artifacts
-> for the team — not user-facing docs. The CHANGELOG is the public
-> record of what shipped and when.
 
 ## License
 
