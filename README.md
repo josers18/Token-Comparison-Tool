@@ -54,12 +54,10 @@ The only axis of variance is the tool provider.
 
 ## Screenshots
 
-> **Note:** the screenshots below predate the **Tier E Spatial Glass redesign**
-> (May 2026). They show the original editorial-light UI. The live app at the
-> URL above renders the Spatial Glass theme system described below — capture
-> fresh screenshots and replace these PNGs when you next visit the deployed
-> app, or run the dev server locally and screenshot the home / scenario /
-> summary surfaces.
+> Captured against the live Heroku deployment via
+> [`scripts/capture_screenshots.py`](scripts/capture_screenshots.py)
+> (Playwright headless Chromium, 1440×900 viewport, retina,
+> `Teal · Light` theme). Re-run any time the UI shifts.
 
 ### Catalog (home)
 
