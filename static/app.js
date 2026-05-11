@@ -1388,7 +1388,7 @@ function renderScenario(sid) {
     const savePerRun = dearer - cheaper;
     savingsEl.textContent = `$${(savePerRun * 10000).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`;
     const tokDelta = mcpInput - nativeInput;
-    tokEl.textContent = (tokDelta >= 0 ? "−" : "+") + Math.abs(tokDelta).toLocaleString() + " tok";
+    tokEl.textContent = (tokDelta >= 0 ? "−" : "+") + Math.abs(tokDelta).toLocaleString();
   } else {
     verdict.hidden = true;
     headlineEl.textContent = "—";
